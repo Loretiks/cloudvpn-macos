@@ -1,0 +1,20 @@
+# Generated Xcode project (regenerate with `xcodegen generate`)
+*.xcodeproj/
+*.xcworkspace/
+
+# Xcode / build
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+
+# The core binary + geo assets are fetched, not committed
+Core/mihomo
+Core/*.metadb
+Core/*.dat
+
+# macOS / misc
+.DS_Store
+*.log
+secrets.xcconfig

@@ -1,0 +1,75 @@
+# XcodeGen spec — generates CloudVPN.xcodeproj from this file.
+# On the Mac:  brew install xcodegen  &&  xcodegen generate  &&  open CloudVPN.xcodeproj
+#
+# Two targets:
+#   • CloudVPN        — the SwiftUI app (menu-bar / window UI, login, connect toggle)
+#   • CloudVPNHelper  — a privileged LaunchDaemon (root) that runs mihomo with a utun
+#                       device. Installed/managed via SMAppService; talks to the app over XPC.
+#
+# This mirrors the Windows client (mihomo owns the TUN, a helper provides privilege) and
+# needs NO Apple NetworkExtension entitlement — so it builds & runs on a FREE Apple account
+# for local development. Notarizing a DMG for distribution needs the paid program later.
+
+name: CloudVPN
+options:
+  bundleIdPrefix: tech.cloude.vpn.mac
+  deploymentTarget:
+    macOS: "13.0"          # SMAppService requires macOS 13+
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    # Set your Team ID once (Xcode → Signing). A FREE account works for local runs.
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  CloudVPN:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: tech.cloude.vpn.mac
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/CloudVPN.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+    dependencies:
+      - target: CloudVPNHelper
+        embed: false        # the helper is copied by the phase below, not embedded as a framework
+    # Bundle the mihomo binary + geo assets and the helper daemon into the app.
+    # NOTE: finalize these copy phases in Xcode on the Mac — the destinations below
+    # are the standard SMAppService layout but Xcode is the source of truth.
+    postCompileScripts: []
+    buildRules: []
+
+  CloudVPNHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - Helper
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: tech.cloude.vpn.mac.helper
+        PRODUCT_NAME: tech.cloude.vpn.mac.helper
+        CODE_SIGN_ENTITLEMENTS: Helper/Helper.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        # These embed the launchd + info plists into the helper executable, as
+        # SMAppService LaunchDaemons require.
+        OTHER_LDFLAGS:
+          - "-sectcreate"
+          - "__TEXT"
+          - "__info_plist"
+          - "$(SRCROOT)/Helper/Info.plist"
+          - "-sectcreate"
+          - "__TEXT"
+          - "__launchd_plist"
+          - "$(SRCROOT)/Helper/Launchd.plist"

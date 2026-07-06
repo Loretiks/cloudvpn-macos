@@ -1,0 +1,5 @@
+# macOS-targeted repo — always check out LF (CRLF would break shell scripts / Swift on the Mac).
+* text=auto eol=lf
+*.sh text eol=lf
+*.swift text eol=lf
+Core/mihomo binary
