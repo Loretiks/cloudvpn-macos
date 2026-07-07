@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CloudVPN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ===== SVG-спрайт иконок (чистые, легко заменить) ===== -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <symbol id="ic-power" viewBox="0 0 24 24"><path d="M12 4v7"/><path d="M7.5 7.5a6.3 6.3 0 1 0 9 0"/></symbol>
+    <symbol id="ic-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+    <symbol id="ic-crown" viewBox="0 0 24 24"><path d="M4 8l3.6 3L12 5l4.4 6L20 8l-1.4 10H5.4L4 8Z"/></symbol>
+    <symbol id="ic-settings" viewBox="0 0 24 24"><path d="M4 7h9M19 7h1"/><circle cx="16" cy="7" r="2.3"/><path d="M4 12h2M12 12h8"/><circle cx="9" cy="12" r="2.3"/><path d="M4 17h9M19 17h1"/><circle cx="16" cy="17" r="2.3"/></symbol>
+    <symbol id="ic-telegram" viewBox="0 0 24 24"><path d="M21.5 4.5 2.6 11.3l6.5 2.2 2.2 6.5L21.5 4.5Z"/><path d="m9.1 13.5 4-3.6"/></symbol>
+    <symbol id="ic-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m3.5 7 8.5 6 8.5-6"/></symbol>
+    <symbol id="ic-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19"/><path d="M6 15h4"/></symbol>
+    <symbol id="ic-sbp" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.4"/><path d="M11 18h2"/></symbol>
+    <symbol id="ic-crypto" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8h3.2a2 2 0 0 1 0 4H10zm0 4h3.6a2 2 0 0 1 0 4H10zm0-4v8m1.5-9.6v1.6m0 9v-1.5"/></symbol>
+    <symbol id="ic-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></symbol>
+    <symbol id="ic-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></symbol>
+    <symbol id="ic-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 3 7.6 7 9 4-1.4 7-4.4 7-9V6l-7-3Z"/></symbol>
+    <symbol id="ic-brand" viewBox="0 0 430 371"><path d="M257.887 5.40144C273.518 -1.86218 291.571 -1.79702 307.149 5.57917L400.325 49.6964C418.141 58.1318 429.5 76.0793 429.5 95.7911V196.837C429.5 235.239 413.382 271.878 385.074 297.827L324.297 353.539C300.638 375.227 264.456 375.661 240.283 354.548L193.633 313.803C187.394 308.353 186.753 298.877 192.202 292.638C197.652 286.398 207.128 285.758 213.367 291.207L260.019 331.953C272.681 343.012 291.633 342.785 304.025 331.425L364.803 275.712C386.912 255.445 399.5 226.83 399.5 196.837V95.7911C399.5 87.6745 394.822 80.284 387.486 76.8106L294.311 32.6934C286.79 29.1328 278.075 29.1011 270.529 32.6075L175.15 76.9288C167.74 80.3723 163 87.8023 163 95.9737V104.005C163 112.289 156.284 119.005 148 119.005C139.716 119.005 133 112.289 133 104.005V95.9737C133 76.129 144.511 58.0855 162.508 49.7227L257.887 5.40144ZM280.5 135.505C301.763 135.505 319 152.742 319 174.005C319 189.753 309.543 203.29 296 209.254V252.505C296 260.789 289.284 267.505 281 267.505C272.716 267.505 266 260.789 266 252.505V209.678C251.924 203.951 242 190.138 242 174.005C242 152.742 259.237 135.505 280.5 135.505ZM192.5 237.005C200.784 237.005 207.5 243.721 207.5 252.005C207.5 260.289 200.784 267.005 192.5 267.005H43C34.7157 267.005 28 260.289 28 252.005C28 243.721 34.7158 237.005 43 237.005H192.5ZM178.5 187.505C186.784 187.505 193.5 194.221 193.5 202.505C193.5 210.789 186.784 217.505 178.5 217.505H29C20.7157 217.505 14 210.789 14 202.505C14 194.221 20.7158 187.505 29 187.505H178.5ZM164.5 140.505C172.784 140.505 179.5 147.221 179.5 155.505C179.5 163.789 172.784 170.505 164.5 170.505H15C6.71573 170.505 0 163.789 0 155.505C4.94787e-05 147.221 6.71576 140.505 15 140.505H164.5Z"/></symbol>
+    <symbol id="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></symbol>
+    <symbol id="ic-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 7 7 0 1 0 20 14.5Z"/></symbol>
+    <symbol id="ic-check" viewBox="0 0 24 24"><path d="m5 12.5 4.2 4.2L19 7"/></symbol>
+    <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2.2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="ic-logout" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="m10 8-4 4 4 4"/><path d="M6 12h10"/></symbol>
+    <symbol id="ic-chat" viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3v4l5-4h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z"/></symbol>
+    <symbol id="ic-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="ic-close" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></symbol>
+    <symbol id="ic-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+    <symbol id="ic-apps" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="ic-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="ic-pc" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  </defs></svg>
+
+  <!-- ===== Title-bar ===== -->
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar__app">
+      <span class="titlebar__logo"><svg class="bic"><use href="#ic-brand"/></svg></span>
+      <span>Cloud<b>VPN</b></span>
+    </div>
+    <div class="titlebar__controls" id="winControls">
+      <button class="wbtn" data-win="min" title="Свернуть"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
+      <button class="wbtn" data-win="max" title="Развернуть"><svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg></button>
+      <button class="wbtn wbtn--close" data-win="close" title="Закрыть"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </header>
+
+  <!-- ===== Баннер обновления (показывается, когда вышла новая версия) ===== -->
+  <div class="updbar" id="updBar" hidden>
+    <svg class="ic updbar__ic"><use href="#ic-bolt"/></svg>
+    <span class="updbar__txt" id="updText">Доступно обновление</span>
+    <div class="updbar__prog" id="updProgWrap" hidden><span id="updProg"></span></div>
+    <button class="updbar__btn" id="updNow">Обновить</button>
+    <button class="updbar__x" id="updLater" title="Позже">&times;</button>
+  </div>
+
+  <div class="aurora" aria-hidden="true">
+    <span class="blob blob--blue"></span>
+    <span class="blob blob--red"></span>
+  </div>
+  <canvas id="fxCanvas" class="fx-fire" aria-hidden="true"></canvas>
+  <div class="holiday" id="holiday" aria-hidden="true"></div>
+  <div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
+
+  <!-- ============================================================ ВХОД ============================================================ -->
+  <div class="auth" id="authView">
+    <div class="auth__card">
+      <div class="mascot mascot--lg" data-mascot>
+        <div class="mascot__bubble" data-bubble></div>
+        <svg viewBox="0 0 200 150" class="mascot__svg" aria-hidden="true">
+          <defs><linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#dbe7ff"/></linearGradient></defs>
+          <g class="mascot__body"><ellipse cx="100" cy="100" rx="80" ry="42" fill="url(#cg1)"/><circle cx="54" cy="84" r="35" fill="url(#cg1)"/><circle cx="100" cy="64" r="44" fill="url(#cg1)"/><circle cx="150" cy="86" r="33" fill="url(#cg1)"/></g>
+          <g class="mascot__eyes">
+            <g class="eye"><ellipse class="eye__white" cx="82" cy="80" rx="15" ry="17" fill="#fff"/><circle class="eye__pupil" cx="82" cy="80" r="7.5" fill="#0b1437"/><circle class="eye__spark" cx="79" cy="76" r="2.4" fill="#fff"/></g>
+            <g class="eye"><ellipse class="eye__white" cx="124" cy="80" rx="15" ry="17" fill="#fff"/><circle class="eye__pupil" cx="124" cy="80" r="7.5" fill="#0b1437"/><circle class="eye__spark" cx="121" cy="76" r="2.4" fill="#fff"/></g>
+          </g>
+          <circle cx="64" cy="102" r="6" fill="#ff5b6e" opacity=".5"/><circle cx="142" cy="102" r="6" fill="#ff5b6e" opacity=".5"/>
+          <path d="M92 104 q8 9 16 0" stroke="#0b1437" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1 class="auth__title">Cloud<span>VPN</span></h1>
+      <p class="auth__subtitle">Быстрый и приватный интернет.<br>Войдите, чтобы продолжить.</p>
+
+      <div class="auth__step" data-step="choose">
+        <button class="btn btn--tg" id="tgLoginBtn"><svg class="ic"><use href="#ic-telegram"/></svg><span>Войти через Telegram</span></button>
+        <p class="auth__tg-note">подписка подтянется автоматически</p>
+        <div class="auth__divider"><span>или по почте</span></div>
+        <label class="field"><svg class="ic field__ic"><use href="#ic-mail"/></svg><input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email" /></label>
+        <label class="field"><svg class="ic field__ic"><use href="#ic-lock"/></svg><input type="password" id="passInput" placeholder="пароль" autocomplete="current-password" /></label>
+        <button class="btn btn--primary" id="emailLoginBtn">Войти по почте</button>
+        <button class="btn btn--ghost" id="emailCodeBtn" type="button">Получить код на почту</button>
+        <p class="auth__hint auth__hint--sm">Нет пароля? Получите одноразовый код на почту, заведите пароль в Telegram-боте (меню → «📧 Почта для входа»), или вспомните пароль на <a href="https://cloude.tech/reset-password" target="_blank" rel="noopener">cloude.tech</a>.</p>
+      </div>
+
+      <div class="auth__step" data-step="tg" hidden>
+        <div class="tg-wait"><span class="spinner"></span><p>Откройте бота <b id="tgBotName">@bot</b> и нажмите <b>Start</b>.</p></div>
+        <button class="btn btn--primary" id="tgConfirmBtn">Я нажал Start в Telegram</button>
+        <button class="btn btn--ghost" id="tgCancelBtn">Отмена</button>
+      </div>
+
+      <div class="auth__step" data-step="code" hidden>
+        <p class="auth__tg-note">Код отправлен на <b id="codeEmail">—</b>. Введите 6 цифр из письма.</p>
+        <label class="field"><svg class="ic field__ic"><use href="#ic-lock"/></svg><input type="text" inputmode="numeric" id="codeInput" placeholder="000000" autocomplete="one-time-code" maxlength="6" style="letter-spacing:.4em;font-family:'SF Mono',Menlo,Consolas,monospace" /></label>
+        <button class="btn btn--primary" id="codeSubmitBtn">Войти по коду</button>
+        <button class="btn btn--ghost" id="codeResendBtn" type="button" disabled>Прислать ещё раз</button>
+        <button class="btn btn--ghost" id="codeCancelBtn" type="button">Отмена</button>
+      </div>
+
+      <p class="auth__legal">Продолжая, вы принимаете условия использования и политику конфиденциальности.</p>
+    </div>
+  </div>
+
+  <!-- Модалка «Добавить правило» — тип (процесс/домен/ip/geo) + значение. -->
+  <div class="picker" id="appPicker" hidden>
+    <div class="picker__backdrop" data-picker-close></div>
+    <div class="picker__card">
+      <div class="picker__head">
+        <h3>Добавить правило</h3>
+        <button class="picker__close" data-picker-close type="button" aria-label="Закрыть">×</button>
+      </div>
+
+      <div class="picker__types" id="ruleTypes">
+        <button class="picker__type is-active" data-type="process">💻 Процесс</button>
+        <button class="picker__type" data-type="domain-suffix">🌐 По суффиксу</button>
+        <button class="picker__type" data-type="domain-keyword">Tt Слово в домене</button>
+        <button class="picker__type" data-type="geosite">📚 GeoSite</button>
+        <button class="picker__type" data-type="ip-cidr">🛣 IP-CIDR</button>
+        <button class="picker__type" data-type="asn"># ASN</button>
+        <button class="picker__type" data-type="geoip">📍 GeoIP</button>
+      </div>
+
+      <!-- Режим Процесс: показываем список запущенных программ -->
+      <div class="picker__body" data-mode="process">
+        <label class="picker__search">
+          <svg class="ic"><use href="#ic-search"/></svg>
+          <input type="text" id="appPickerSearch" placeholder="Поиск по запущенным…" autocomplete="off">
+        </label>
+        <ul class="picker__list" id="appPickerList"></ul>
+        <div class="picker__foot">
+          <span class="picker__hint">Не нашлось? <a href="#" id="appPickerManual">Ввести имя процесса вручную</a></span>
+          <button class="picker__refresh" id="appPickerRefresh" type="button">↻ Обновить</button>
+        </div>
+      </div>
+
+      <!-- Режим value: ввод вручную для домена/ip/asn/geo -->
+      <div class="picker__body" data-mode="value" hidden>
+        <p class="picker__valueHint" id="valueHint">пример</p>
+        <label class="picker__search">
+          <input type="text" id="valueInput" placeholder="пример" autocomplete="off">
+        </label>
+        <div class="picker__foot">
+          <span class="picker__hint" id="valueHelp"></span>
+          <button class="picker__refresh" id="valueAddBtn" type="button">Добавить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================ ПРИЛОЖЕНИЕ ============================================================ -->
+  <div class="shell" id="appShell" hidden>
+    <nav class="rail">
+      <div class="rail__logo"><svg class="bic"><use href="#ic-brand"/></svg></div>
+      <button class="rail__item is-active" data-view="connect" title="Подключение"><svg class="ic"><use href="#ic-power"/></svg></button>
+      <button class="rail__item" data-view="subscribe" title="Подписка"><svg class="ic"><use href="#ic-crown"/></svg></button>
+      <button class="rail__item" data-view="settings" title="Настройки"><svg class="ic"><use href="#ic-settings"/></svg></button>
+      <div class="rail__spacer"></div>
+      <button class="rail__item" id="themeBtn" title="Тема"><svg class="ic"><use href="#ic-moon"/></svg></button>
+      <button class="rail__item rail__avatar" data-view="settings" id="railAvatar" title="Аккаунт">У</button>
+    </nav>
+
+    <main class="content">
+      <!-- ===== ПОДКЛЮЧЕНИЕ ===== -->
+      <section class="view is-active" data-view="connect">
+        <header class="view__head">
+          <div><h1>Подключение</h1><p class="view__sub">Один клик – и трафик в безопасном облаке</p></div>
+          <button class="sub-chip" data-go="subscribe" id="subChip"><svg class="ic"><use href="#ic-crown"/></svg><span id="subChipText">–</span></button>
+        </header>
+
+        <div class="hero panel reveal">
+          <canvas id="rainCanvas" class="hero-precip" aria-hidden="true"></canvas>
+          <div class="mascot" data-mascot title="Клауди следит за безопасностью 👀">
+            <div class="mascot__bubble" data-bubble></div>
+            <svg viewBox="0 0 200 150" class="mascot__svg" aria-hidden="true">
+              <defs><linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#dbe7ff"/></linearGradient></defs>
+              <g class="mascot__body"><ellipse cx="100" cy="100" rx="80" ry="42" fill="url(#cg2)"/><circle cx="54" cy="84" r="35" fill="url(#cg2)"/><circle cx="100" cy="64" r="44" fill="url(#cg2)"/><circle cx="150" cy="86" r="33" fill="url(#cg2)"/></g>
+              <g class="mascot__eyes">
+                <g class="eye"><ellipse class="eye__white" cx="82" cy="80" rx="15" ry="17" fill="#fff"/><circle class="eye__pupil" cx="82" cy="80" r="7.5" fill="#0b1437"/><circle class="eye__spark" cx="79" cy="76" r="2.4" fill="#fff"/></g>
+                <g class="eye"><ellipse class="eye__white" cx="124" cy="80" rx="15" ry="17" fill="#fff"/><circle class="eye__pupil" cx="124" cy="80" r="7.5" fill="#0b1437"/><circle class="eye__spark" cx="121" cy="76" r="2.4" fill="#fff"/></g>
+              </g>
+              <circle cx="64" cy="102" r="6" fill="#ff5b6e" opacity=".5"/><circle cx="142" cy="102" r="6" fill="#ff5b6e" opacity=".5"/>
+              <path d="M92 104 q8 9 16 0" stroke="#0b1437" stroke-width="3" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+
+          <div class="status-chip" id="statusChip"><span class="dot"></span><span id="statusText">Отключено</span></div>
+
+          <button class="orb" id="connectOrb" aria-label="Подключиться">
+            <span class="orb__halo"></span><span class="orb__ring orb__ring--1"></span><span class="orb__ring orb__ring--2"></span>
+            <span class="orb__core"><span class="orb__icon"><svg class="ic"><use href="#ic-power"/></svg></span><span class="orb__label" id="orbLabel">Подключить</span></span>
+          </button>
+
+          <button class="server-pick" id="serverPick">
+            <img class="flag-slot" id="pickFlag" src="flags/nl.svg" alt="" />
+            <span class="server-pick__txt"><b id="currentServerName">Нидерланды · Амстердам</b><small>нажмите, чтобы сменить</small></span>
+            <svg class="ic server-pick__chev"><use href="#ic-chevron"/></svg>
+          </button>
+
+          <div class="metrics">
+            <div class="metric"><span class="metric__label">Пинг</span><span class="metric__value"><b id="mPing">–</b> мс</span></div>
+            <div class="metric"><span class="metric__label">Загрузка</span><span class="metric__value"><b id="mDown">0.0</b> МБ/с</span></div>
+            <div class="metric"><span class="metric__label">Отдача</span><span class="metric__value"><b id="mUp">0.0</b> МБ/с</span></div>
+            <div class="metric"><span class="metric__label">Время</span><span class="metric__value"><b id="mTime">00:00</b></span></div>
+          </div>
+
+          <div class="trust">
+            <span class="trust__chip"><svg class="ic"><use href="#ic-shield"/></svg>Без логов</span>
+            <span class="trust__chip"><svg class="ic"><use href="#ic-bolt"/></svg>До 1 Гбит/с</span>
+            <span class="trust__chip"><svg class="ic"><use href="#ic-globe"/></svg><span id="locCount">—</span></span>
+            <span class="trust__chip" id="ipChip"><svg class="ic"><use href="#ic-lock"/></svg><span id="ipText">IP скрыт</span></span>
+          </div>
+        </div>
+
+        <div class="connect-row">
+          <div class="panel mode-card reveal" style="--d:.06s">
+            <div class="panel__head"><h2>Режим подключения</h2></div>
+            <div class="seg seg--mode" id="modeSwitch">
+              <button class="is-active" data-mode="proxy"><svg class="ic"><use href="#ic-globe"/></svg>Прокси</button>
+              <button data-mode="tun"><svg class="ic"><use href="#ic-shield"/></svg>TUN</button>
+            </div>
+            <p class="mode-card__hint" id="modeHint">Прокси-режим: работает без прав администратора.</p>
+
+            <div class="panel__head" style="margin-top:18px"><h2>Что направлять в VPN</h2></div>
+            <div class="seg seg--route" id="routeSwitch">
+              <button class="is-active" data-route="all"><svg class="ic"><use href="#ic-pc"/></svg>Весь ПК</button>
+              <button data-route="apps"><svg class="ic"><use href="#ic-apps"/></svg>По приложениям</button>
+            </div>
+            <div class="app-routes" id="appRoutes" hidden>
+              <ul class="app-list" id="appList"></ul>
+              <button class="pill-btn add-app" id="addAppBtn"><svg class="ic"><use href="#ic-plus"/></svg>Добавить приложение</button>
+            </div>
+          </div>
+          <div class="panel traffic-card reveal" style="--d:.12s">
+            <div class="panel__head"><h2>Трафик за сессию</h2></div>
+            <canvas id="trafficChart" width="320" height="96"></canvas>
+            <div class="traffic__legend">
+              <span><i class="dot dot--blue"></i>Загружено <b id="totalDown">0 МБ</b></span>
+              <span><i class="dot dot--red"></i>Отдано <b id="totalUp">0 МБ</b></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ПОДПИСКА ===== -->
+      <section class="view" data-view="subscribe">
+        <header class="view__head"><div><h1>Подписка</h1><p class="view__sub">Выберите срок – оплата через Платега</p></div></header>
+
+        <div class="sub-status reveal">
+          <div class="sub-status__icon"><svg class="ic"><use href="#ic-crown"/></svg></div>
+          <div class="sub-status__text"><b id="subStatusPlan">–</b><small id="subStatusInfo">–</small></div>
+          <div class="sub-status__bar"><i id="subStatusProgress"></i></div>
+        </div>
+
+        <div class="plans" id="plans"></div>
+
+        <div class="pay reveal" style="--d:.1s">
+          <div class="pay__methods" id="payMethods"></div>
+          <button class="btn btn--primary btn--lg" id="payBtn"><span id="payBtnText">Оплатить</span><span class="btn__sub" id="payBtnSub"></span></button>
+          <p class="pay__note"><svg class="ic"><use href="#ic-lock"/></svg>Платёж проходит на стороне <b>Платега</b>. Карта / СБП / крипта. Данные карты в приложение не попадают.</p>
+        </div>
+      </section>
+
+      <!-- ===== НАСТРОЙКИ ===== -->
+      <section class="view" data-view="settings">
+        <header class="view__head"><div><h1>Аккаунт и настройки</h1><p class="view__sub">Профиль, оформление и параметры подключения</p></div></header>
+        <div class="settings-grid">
+          <div class="panel account-card reveal">
+            <div class="account-card__top">
+              <div class="account-card__avatar" id="accAvatar">У</div>
+              <div><b id="accName">–</b><small id="accHandle" class="email-blur" title="нажми, чтобы показать">–</small><span class="account-card__via" id="accVia">–</span></div>
+            </div>
+            <div class="account-card__sub"><span>Подписка</span><div class="account-card__val" id="accSub">–</div></div>
+            <div class="account-card__sub"><span>Баланс</span><b id="accBalance">–</b></div>
+            <button class="btn btn--ghost" id="topupBtn"><svg class="ic"><use href="#ic-plus"/></svg>Пополнить баланс</button>
+            <button class="btn btn--primary" data-go="subscribe">Управлять подпиской</button>
+            <button class="btn btn--ghost" id="logoutBtn"><svg class="ic"><use href="#ic-logout"/></svg>Выйти из аккаунта</button>
+          </div>
+          <div class="panel reveal" id="devicesPanel" style="--d:.05s">
+            <div class="panel__head"><h2>Устройства</h2><span class="muted" id="devCount">–</span></div>
+            <ul class="devlist" id="devList"></ul>
+            <p class="muted devlist__empty" id="devEmpty" hidden>Пока нет подключённых устройств.</p>
+            <button class="btn btn--ghost" id="buySlotBtn"><svg class="ic"><use href="#ic-plus"/></svg>Купить слот</button>
+            <button class="btn btn--reset" id="resetKeyBtn">🔑 Сбросить ключ — отключить все устройства</button>
+            <p class="muted reset-hint">Если ссылка утекла — сброс мгновенно кикнет все устройства. Потом заново импортируйте новую ссылку на своих.</p>
+          </div>
+          <div class="panel reveal" style="--d:.06s">
+            <div class="panel__head"><h2>Оформление</h2></div>
+            <div class="seg" id="themeSeg"><button data-theme-val="light" class="is-active"><svg class="ic"><use href="#ic-sun"/></svg>Светлая</button><button data-theme-val="dark"><svg class="ic"><use href="#ic-moon"/></svg>Тёмная</button></div>
+            <label class="toggle" id="fxToggleRow" style="margin-top:6px"><span><b>Праздничные эффекты</b><small id="fxToggleHint">снег, декор и поздравления</small></span><input type="checkbox" id="fxToggle" checked/><span class="track"></span></label>
+            <div class="panel__head" style="margin-top:20px"><h2>Подключение</h2></div>
+            <div class="toggles">
+              <label class="toggle"><span><b>Автозапуск</b><small>стартовать с системой</small></span><input type="checkbox" id="autostartToggle"/><span class="track"></span></label>
+              <label class="toggle"><span><b>Kill Switch</b><small>блок сети при разрыве</small></span><input type="checkbox" id="killSwitchToggle"/><span class="track"></span></label>
+              <label class="toggle"><span><b>Авто-сервер</b><small>выбирать самый быстрый</small></span><input type="checkbox" checked/><span class="track"></span></label>
+              <label class="toggle"><span><b>Уведомления</b><small>статус подключения</small></span><input type="checkbox" checked/><span class="track"></span></label>
+            </div>
+          </div>
+          <div class="panel about reveal" style="--d:.12s">
+            <div class="panel__head"><h2>О приложении</h2></div>
+            <p>CloudVPN <b id="aboutVersion">—</b></p>
+            <p class="muted">Приватный VPN · сквозное шифрование трафика</p>
+            <button class="btn btn--ghost" id="tgSupportBtn"><svg class="ic"><use href="#ic-chat"/></svg>Поддержка в Telegram</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===== Выезжающая панель серверов ===== -->
+  <div class="drawer" id="serverDrawer" hidden>
+    <div class="drawer__backdrop" id="drawerBackdrop"></div>
+    <aside class="drawer__panel">
+      <div class="drawer__head">
+        <h2>Выбор сервера</h2>
+        <div class="drawer__actions">
+          <button class="pill-btn" id="pingAllBtn"><svg class="ic"><use href="#ic-bolt"/></svg>Пинг всех</button>
+          <button class="icon-btn" id="drawerClose" title="Закрыть"><svg class="ic"><use href="#ic-close"/></svg></button>
+        </div>
+      </div>
+      <label class="search"><svg class="ic"><use href="#ic-search"/></svg><input type="text" id="serverSearch" placeholder="Поиск страны или города"/></label>
+      <!-- Импорт чужого конфига — только для админов (проверка работы ядра) -->
+      <div class="admin-import" id="adminImport" hidden>
+        <div class="admin-import__row">
+          <input type="text" id="importInput" placeholder="vless://… (конфиг другого VPN)"/>
+          <button class="pill-btn" id="importBtn"><svg class="ic"><use href="#ic-plus"/></svg>Добавить</button>
+        </div>
+        <small class="admin-import__hint">Админ: вставь vless-ссылку, чтобы проверить туннель на чужом сервере.</small>
+        <button class="pill-btn pill-btn--ghost" id="openLogBtn" type="button" style="margin-top:8px">
+          <svg class="ic"><use href="#ic-search"/></svg>Открыть лог mihomo
+        </button>
+      </div>
+      <ul class="server-list" id="serverList"></ul>
+    </aside>
+  </div>
+
+  <!-- Карточка новости от ClaudiNewsBot -->
+  <div class="newscard" id="newsCard" hidden>
+    <button class="newscard__close" id="newsClose" title="Закрыть"><svg class="ic"><use href="#ic-close"/></svg></button>
+    <img class="newscard__img" id="newsImg" alt="" hidden />
+    <div class="newscard__body">
+      <div class="newscard__tag"><svg class="ic"><use href="#ic-chat"/></svg> Новость от Клауди</div>
+      <p class="newscard__text" id="newsText"></p>
+      <small class="newscard__date" id="newsDate"></small>
+    </div>
+  </div>
+
+  <!-- Праздничный подарок (+дни подписки) -->
+  <button class="gift" id="giftBtn" hidden title="Праздничный подарок">
+    <span class="gift__emoji">🎁</span>
+    <span class="gift__label" id="giftLabel">Подарок!</span>
+  </button>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Кастомный диалог подтверждения (вместо нативного confirm) -->
+  <div class="cmodal" id="confirmModal" hidden>
+    <div class="cmodal__backdrop" id="confirmBackdrop"></div>
+    <div class="cmodal__box">
+      <p id="confirmText">—</p>
+      <div class="cmodal__actions">
+        <button class="btn btn--ghost" id="confirmNo">Отмена</button>
+        <button class="btn btn--primary" id="confirmYes">Подтвердить</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cmodal" id="promptModal" hidden>
+    <div class="cmodal__backdrop" id="promptBackdrop"></div>
+    <div class="cmodal__box">
+      <p id="promptText">—</p>
+      <input type="text" class="cmodal__input" id="promptInput" autocomplete="off" spellcheck="false">
+      <div class="cmodal__actions">
+        <button class="btn btn--ghost" id="promptNo">Отмена</button>
+        <button class="btn btn--primary" id="promptYes">ОК</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="api.js"></script>
+  <script src="rain.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

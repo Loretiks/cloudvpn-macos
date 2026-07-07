@@ -14,10 +14,25 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHumanReadableCopyright</key>
     <string>Cloud VPN</string>
+    <!-- Sparkle авто-обновления. Фид — на GitHub Releases: стабильный URL
+         releases/latest/download/appcast.xml всегда отдаёт appcast последнего релиза
+         (нужен публичный репо). SUPublicEDKey — публичная половина EdDSA-ключа;
+         приватной (в Keychain разработчика) подписывается каждый релиз. Нотаризация
+         Apple тут НЕ нужна — целостность гарантирует EdDSA-подпись Sparkle. -->
+    <key>SUFeedURL</key>
+    <string>https://github.com/Loretiks/cloudvpn-macos/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>6yy98Mr6ydo3XGWPzEKD39BURhvVrUNSKmpnhUxEwxg=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
     <key>NSAppTransportSecurity</key>
     <dict>
         <!-- Allow talking to the origin by IP if you front the API without a cert-valid

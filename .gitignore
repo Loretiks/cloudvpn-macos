@@ -18,3 +18,6 @@ Core/*.dat
 .DS_Store
 *.log
 secrets.xcconfig
+
+# Release output (DMG, appcast, temp DerivedData)
+dist/

@@ -20,8 +20,8 @@ cat <<'EOF'
 
 ✓ Готово.
   1. open CloudVPN.xcodeproj
-  2. В обоих таргетах (CloudVPN + CloudVPNHelper) → Signing & Capabilities → выбери свою Team
-     (бесплатный Apple ID подойдёт для запуска на своём маке).
-  3. Убедись, что Core/mihomo и Helper/Launchd.plist попадают в бандл (Copy phases) — см. README.
-  4. Run. Первый запуск попросит разрешить хелпер в System Settings → General → Login Items.
+  2. Team уже прописана в project.yml — если она не твоя, поменяй в Signing & Capabilities
+     у обоих таргетов (бесплатный Apple ID подойдёт для запуска на своём маке).
+  3. Run. Первый запуск попросит разрешить хелпер в System Settings → General → Login Items.
+     Всё остальное (mihomo, launchd-plist, geo-базы) попадает в бандл автоматически.
 EOF

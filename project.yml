@@ -9,6 +9,9 @@
 # This mirrors the Windows client (mihomo owns the TUN, a helper provides privilege) and
 # needs NO Apple NetworkExtension entitlement — so it builds & runs on a FREE Apple account
 # for local development. Notarizing a DMG for distribution needs the paid program later.
+#
+# The "Embed helper + core" post-build script below does all the SMAppService wiring
+# (helper binary, launchd plist, mihomo, geo assets) — no manual Xcode copy phases needed.
 
 name: CloudVPN
 options:
@@ -18,22 +21,37 @@ options:
   createIntermediateGroups: true
   developmentLanguage: en
 
+packages:
+  # Sparkle — стандартный фреймворк авто-обновлений macOS (appcast + EdDSA + дельты).
+  # Аналог дельта-апдейтов Windows-клиента; фид хостим на своём домене.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.9"
-    # Set your Team ID once (Xcode → Signing). A FREE account works for local runs.
-    DEVELOPMENT_TEAM: ""
+    # Local dev team (Xcode → Signing). A FREE account works for local runs.
+    DEVELOPMENT_TEAM: "STWWNS7WRF"
     CODE_SIGN_STYLE: Automatic
+    # The embed script copies files into the bundle — keep script sandboxing off.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 targets:
   CloudVPN:
     type: application
     platform: macOS
     sources:
-      - App
+      - path: App
+        excludes:
+          - "Web/**"
       - Shared
+      # Веб-UI (общий с Windows-клиентом) — папкой в Resources/Web
+      - path: App/Web
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: tech.cloude.vpn.mac
@@ -41,20 +59,59 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/CloudVPN.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: CloudVPNHelper
-        embed: false        # the helper is copied by the phase below, not embedded as a framework
-    # Bundle the mihomo binary + geo assets and the helper daemon into the app.
-    # NOTE: finalize these copy phases in Xcode on the Mac — the destinations below
-    # are the standard SMAppService layout but Xcode is the source of truth.
-    postCompileScripts: []
-    buildRules: []
+        embed: false        # copied by the embed script below, not embedded as a framework
+      - package: Sparkle    # авто-обновления; xcframework встраивается и подписывается автоматически
+    postBuildScripts:
+      - name: Embed helper + core
+        # Runs before the final codesign of the .app, so everything lands inside the seal.
+        # Layout (SMAppService):
+        #   Contents/MacOS/tech.cloude.vpn.mac.helper            ← helper daemon (built product)
+        #   Contents/Library/LaunchDaemons/<label>.plist          ← launchd spec
+        #   Contents/MacOS/mihomo                                 ← core, re-signed with our identity
+        #   Contents/Resources/{geoip.metadb,geosite.dat}         ← geo data (optional, seeded to workdir)
+        script: |
+          set -euo pipefail
+          APP_MACOS="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
+          APP_CONTENTS="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH"
+
+          cp -f "$BUILT_PRODUCTS_DIR/tech.cloude.vpn.mac.helper" "$APP_MACOS/"
+
+          mkdir -p "$APP_CONTENTS/Library/LaunchDaemons"
+          cp -f "$SRCROOT/Helper/tech.cloude.vpn.mac.helper.plist" "$APP_CONTENTS/Library/LaunchDaemons/"
+
+          if [ ! -x "$SRCROOT/Core/mihomo" ]; then
+            echo "error: Core/mihomo missing — run ./scripts/fetch-mihomo.sh first" >&2
+            exit 1
+          fi
+          cp -f "$SRCROOT/Core/mihomo" "$APP_MACOS/mihomo"
+
+          mkdir -p "$APP_CONTENTS/Resources"
+          for f in geoip.metadb geosite.dat; do
+            if [ -f "$SRCROOT/Core/$f" ]; then cp -f "$SRCROOT/Core/$f" "$APP_CONTENTS/Resources/$f"; fi
+          done
+
+          # mihomo ships ad-hoc signed; re-sign with the build identity so the
+          # bundle's nested-code validation stays clean.
+          codesign --force --options runtime --timestamp=none \
+            --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$APP_MACOS/mihomo"
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/tech.cloude.vpn.mac.helper
+          - $(SRCROOT)/Helper/tech.cloude.vpn.mac.helper.plist
+          - $(SRCROOT)/Core/mihomo
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/tech.cloude.vpn.mac.helper
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/tech.cloude.vpn.mac.helper.plist
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/mihomo
 
   CloudVPNHelper:
     type: tool
     platform: macOS
     sources:
-      - Helper
+      - path: Helper/main.swift
+      - path: Helper/KillSwitch.swift
       - Shared
     settings:
       base:
@@ -72,4 +129,4 @@ targets:
           - "-sectcreate"
           - "__TEXT"
           - "__launchd_plist"
-          - "$(SRCROOT)/Helper/Launchd.plist"
+          - "$(SRCROOT)/Helper/tech.cloude.vpn.mac.helper.plist"
