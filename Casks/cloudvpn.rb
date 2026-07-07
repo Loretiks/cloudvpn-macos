@@ -19,7 +19,7 @@ cask "cloudvpn" do
 
   # Приложение обновляется само через Sparkle — brew не перетирает и не мешает.
   auto_updates true
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "CloudVPN.app"
 
