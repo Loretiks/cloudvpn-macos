@@ -9,7 +9,7 @@
 # в tap-репо (или настрой пуш в release.sh).
 cask "cloudvpn" do
   version "0.1.0"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "c6fa5ad17fb82c30d2039fc6a67a5762178e8a34bc4c146dac6497a71ea6e66d"
 
   url "https://github.com/Loretiks/cloudvpn-macos/releases/download/v#{version}/CloudVPN-#{version}.dmg",
       verified: "github.com/Loretiks/cloudvpn-macos/"

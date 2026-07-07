@@ -71,7 +71,7 @@ fi
 
 # 7. Выложить на GitHub Releases: DMG текущей версии, все дельты и appcast.xml.
 #    appcast.xml обязателен как ассет — на него смотрит SUFeedURL (latest/download).
-echo "→ публикация релиза $TAG в $REPO…"
+echo "→ публикация релиза ${TAG} в ${REPO} …"
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
   gh release upload "$TAG" "$UPDATES/appcast.xml" "$DMG" $UPDATES/*.delta --clobber -R "$REPO" 2>/dev/null || \
   gh release upload "$TAG" "$UPDATES/appcast.xml" "$DMG" --clobber -R "$REPO"
