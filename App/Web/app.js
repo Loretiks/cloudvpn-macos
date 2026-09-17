@@ -89,10 +89,24 @@
       master.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.15);
     } catch {}
   }
-  // Нативное уведомление Windows (через мост в C#); заголовок задаёт C#
-  function winNotify(body) {
-    if (host) host.postMessage('notify:' + (body || '').replace(/\s+/g, ' ').slice(0, 180));
+  // Нативное уведомление Windows (через мост в C#). Формат: notify:<title>\x1f<body>
+  function winNotify(body, title) {
+    if (host) host.postMessage('notify:' + (title || 'CloudVPN') + '\x1f' + (body || '').replace(/\s+/g, ' ').slice(0, 180));
   }
+
+  // Код из письма состоит только из цифр — буквы в поле не пускаем.
+  $('#codeInput')?.addEventListener('input', (e) => {
+    const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+    if (v !== e.target.value) e.target.value = v;
+  });
+  // Внешние ссылки — системным браузером через мост, иначе WebView2
+  // открывает их отдельным пустым окном приложения.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="http"]');
+    if (!a) return;
+    e.preventDefault();
+    window.API.openExternal(a.href);
+  });
 
   /* ---------- Окно ---------- */
   $('#winControls').addEventListener('click', e => { const b = e.target.closest('[data-win]'); if (b && host) host.postMessage('win:' + b.dataset.win); });
@@ -217,6 +231,8 @@
   }
   const FX_KEY = 'cloudvpn.fx';
   let fxOn = localStorage.getItem(FX_KEY) !== '0';   // тумблер праздничных эффектов
+  const PRECIP_KEY = 'cloudvpn.precip';
+  let precipOn = localStorage.getItem(PRECIP_KEY) !== '0';   // тумблер осадков (дождь/снег)
   function getHolidayRaw() {
     const o = cfg.holiday || 'auto';
     if (o !== 'auto') return o === 'none' ? null : o;
@@ -232,6 +248,7 @@
 
   // Что сыпать: снег зимой/в НГ, иначе дождь в тёмной теме или по реальной погоде
   function decidePrecip() {
+    if (!precipOn) return 'none';                                                // осадки выключены в настройках
     const theme = document.documentElement.getAttribute('data-theme');
     const h = getHoliday();
     if (h === 'halloween') return 'rain';                                        // дождь на Хеллоуин
@@ -353,7 +370,7 @@
     shownNewsId = id; localStorage.setItem('cloudvpn.newsSeen', String(id));
     showNews(n);                                         // новая — показываем сразу
     playChime('news');                                  // «облачный» звук
-    winNotify(n.text || 'Новое сообщение');             // уведомление Windows
+    winNotify(n.text || 'Новое сообщение', 'Новость от Клауди');   // уведомление Windows
     wakeMascot();                                       // Клауди просыпается
   }
   function startNews() {
@@ -408,6 +425,59 @@
     clearInterval(tgPollTimer); const s = await window.API.tgConfirmDemo(); toast('Вход через Telegram выполнен'); enterApp(s);
   });
   $('#tgCancelBtn').addEventListener('click', () => { clearInterval(tgPollTimer); showStep('choose'); });
+
+  // ---- Бесплатный Telegram-only туннель для входа ------------------------
+  // Вход в Cloud VPN идёт через Telegram. Если у человека Telegram заблокирован,
+  // он не может авторизоваться. Эта кнопка на экране входа поднимает TUN, где
+  // в туннель (гостевой узел) уходит ТОЛЬКО трафик Telegram, всё остальное —
+  // напрямую (route:'apps' => MATCH,DIRECT). Так разблокируется и deep-link
+  // входа, и сам Telegram пользователя, бесплатно и без подписки.
+  const TELEGRAM_RULES = [
+    'IP-CIDR,91.108.4.0/22,GLOBAL,no-resolve',
+    'IP-CIDR,91.108.8.0/22,GLOBAL,no-resolve',
+    'IP-CIDR,91.108.12.0/22,GLOBAL,no-resolve',
+    'IP-CIDR,91.108.16.0/22,GLOBAL,no-resolve',
+    'IP-CIDR,91.108.20.0/22,GLOBAL,no-resolve',
+    'IP-CIDR,91.108.56.0/22,GLOBAL,no-resolve',
+    'IP-CIDR,95.161.64.0/20,GLOBAL,no-resolve',
+    'IP-CIDR,149.154.160.0/20,GLOBAL,no-resolve',
+    'IP-CIDR,185.76.151.0/24,GLOBAL,no-resolve',
+    'IP-CIDR6,2001:67c:4e8::/48,GLOBAL,no-resolve',
+    'IP-CIDR6,2001:b28:f23c::/48,GLOBAL,no-resolve',
+    'IP-CIDR6,2001:b28:f23d::/48,GLOBAL,no-resolve',
+    'IP-CIDR6,2001:b28:f23f::/48,GLOBAL,no-resolve',
+    'IP-CIDR6,2a0a:f280::/32,GLOBAL,no-resolve',
+    'DOMAIN-SUFFIX,telegram.org,GLOBAL',
+    'DOMAIN-SUFFIX,t.me,GLOBAL',
+    'DOMAIN-SUFFIX,telegram.me,GLOBAL',
+    'DOMAIN-SUFFIX,telesco.pe,GLOBAL',
+    'DOMAIN-SUFFIX,telegra.ph,GLOBAL',
+    'DOMAIN-SUFFIX,tdesktop.com,GLOBAL',
+    'DOMAIN-SUFFIX,telegram-cdn.org,GLOBAL',
+  ];
+  let tgUnlockOn = false;
+  function tgUnlockLabel(txt){ const b = $('#tgUnlockBtn'); if (b){ const s = b.querySelector('span'); if (s) s.textContent = txt; } }
+  function tgUnlock(){
+    const v = (cfg.tgAuth && cfg.tgAuth.vless) || '';
+    if (!window.API.hasNativeVpn){ toast('Доступно только в приложении', true); return; }
+    if (!v){ toast('Функция недоступна', true); return; }
+    if (tgUnlockOn){ window.API.vpnDisconnect(); return; }   // повторный клик — выключить
+    $('#tgUnlockBtn')?.classList.add('is-busy');
+    tgUnlockLabel('Подключаю Telegram…');
+    // route:'apps' => непойманное идёт DIRECT, а правила Telegram → GLOBAL (в туннель).
+    window.API.vpnConnect({ vless: v, mode: 'tun', route: 'apps', rules: TELEGRAM_RULES });
+  }
+  function tgUnlockStop(){ if (tgUnlockOn || window.API.hasNativeVpn){ try { window.API.vpnDisconnect(); } catch {} } tgUnlockOn = false; }
+  if (window.API.hasNativeVpn && (cfg.tgAuth && cfg.tgAuth.vless)) {
+    const ub = $('#tgUnlockBtn'); if (ub){ ub.hidden = false; ub.addEventListener('click', tgUnlock); }
+    window.API.onVpn(st => {
+      const b = $('#tgUnlockBtn'); if (!b) return;
+      if (appShell && !appShell.hidden) return;    // на экране входа только
+      if (st.state === 'connected'){ tgUnlockOn = true; b.classList.remove('is-busy'); b.classList.add('is-on'); tgUnlockLabel('✓ Telegram разблокирован — входите'); toast('Telegram разблокирован. Теперь войдите через Telegram.'); }
+      else if (st.state === 'connecting'){ b.classList.add('is-busy'); tgUnlockLabel('Подключаю Telegram…'); }
+      else { tgUnlockOn = false; b.classList.remove('is-busy','is-on'); tgUnlockLabel('Не открывается Telegram? Разблокировать'); }
+    });
+  }
 
   async function doEmailLogin() {
     const email = $('#emailInput').value.trim();
@@ -492,6 +562,7 @@
   /* ============================================================ ВХОД В ПРИЛОЖЕНИЕ ============================================================ */
   function enterApp(session) {
     if (!session) return;
+    tgUnlockStop();   // гасим бесплатный Telegram-туннель, дальше подключим подписку
     authView.style.display = 'none'; appShell.hidden = false;
     renderAccount(session); renderSubscription(session.subscription);
     renderPlans(); renderMethods(); refreshAdminUI();
@@ -502,6 +573,7 @@
       try { const r = await window.API.refreshSession(); if (r) fresh = r; } catch {}
       renderAccount(fresh); renderSubscription(fresh.subscription);
       autoImportUserSubscription(fresh);
+      loadGamingServers();
     })();
     resizeChart(); drawChart();
     // переинициализируем осадки под уже видимую карточку (после раскладки)
@@ -515,6 +587,28 @@
   // (Remnawave subscription endpoint), парсим в C#-мосте через
   // importSubscription, получаем список рабочих vless и сохраняем как
   // imported-серверы. Без нативного моста (обычный браузер) — пропуск.
+  // «Игровые серверы» (AmneziaWG). Натив уже получил сырые конфиги (api.loadGaming
+  // → gaming:load), сюда приходит только id+имя. Кладём в общий список с флагом
+  // gaming, коннект пойдёт по gamingId. Раздел рисуется отдельной группой сверху.
+  async function loadGamingServers() {
+    if (!window.API.hasNativeVpn || !window.API.loadGaming) return;
+    let list = [];
+    try { list = await window.API.loadGaming(); } catch {}
+    for (let i = servers.length - 1; i >= 0; i--) if (servers[i].gaming) servers.splice(i, 1);
+    (list || []).forEach(g => {
+      const code = (g.code || 'PL').toUpperCase();
+      servers.push({
+        id: 'game_' + g.id, gamingId: g.id, gaming: true,
+        country: g.name || g.country || 'Игровой сервер', city: g.city || '',
+        code, flag: flagFor(code), vless: '', ping: null, source: 'gaming',
+        host: g.host || '', port: g.port || 443,
+      });
+    });
+    renderServers($('#serverSearch').value);
+    if ((list || []).length) measureAllPings();   // ICMP-пинг игровых узлов
+    syncTray();
+  }
+
   function autoImportUserSubscription(session) {
     const url = session?.subscription?.url;
     if (!url) { loadVpnConfig(); return; }
@@ -533,6 +627,7 @@
       loadImported();
     }
     localStorage.setItem(key, ownerNow);
+    _subUrl = url; _subTries = 0;
     pendingImportSource = 'sub';
     window.API.importSubscription(url);   // ответ придёт в onSub
   }
@@ -544,6 +639,7 @@
     const u = s.user || {}, initial = (u.name || 'U')[0].toUpperCase();
     setAvatar($('#railAvatar'), u.avatar, initial);
     setAvatar($('#accAvatar'), u.avatar, initial);
+    _avatarUrl = u.avatar || null; _avatarInitial = initial;
     $('#accName').textContent = u.name || '–'; $('#accHandle').textContent = u.handle || '';
     $('#accVia').textContent = 'Вход через ' + (u.via || '–');
     const bal = s.balance;
@@ -551,6 +647,7 @@
     _topupUrl = bal?.topupUrl || null;
     loadDevices();
   }
+  let _avatarUrl = null, _avatarInitial = 'У';
   let _topupUrl = null;
   $('#topupBtn')?.addEventListener('click', () => {
     if (_topupUrl) window.API.openExternal(_topupUrl);
@@ -607,12 +704,39 @@
     $$('.rail__item[data-view]').forEach(b => b.classList.toggle('is-active', b.dataset.view === view));
     $$('.view').forEach(v => v.classList.toggle('is-active', v.dataset.view === view));
     if (view === 'settings') loadDevices();
+    if (view === 'connections') startConnPoll(); else stopConnPoll();
   }
   $$('.rail__item[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
   $$('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
 
+  /* ---------- Поповер профиля (аватар) — отдельно от «Настроек» ---------- */
+  const accPop = $('#accountPop');
+  function openAccPop() {
+    // берём уже отрендеренные значения из карточки аккаунта (renderAccount)
+    $('#popName').textContent = $('#accName').textContent;
+    $('#popHandle').textContent = $('#accHandle').textContent;
+    // innerHTML, а не textContent: в карточке подписка размечена как план +
+    // «до <дата>», и склейка текста давала «Premiumдо 09.07.2027».
+    $('#popSub').innerHTML = $('#accSub').innerHTML;
+    $('#popBalance').textContent = $('#accBalance').textContent;
+    setAvatar($('#popAvatar'), _avatarUrl, _avatarInitial);
+    accPop.hidden = false;
+    requestAnimationFrame(() => accPop.classList.add('is-open'));
+  }
+  function closeAccPop() { accPop.classList.remove('is-open'); accPop.hidden = true; }
+  $('#railAvatar').addEventListener('click', (e) => { e.stopPropagation(); accPop.hidden ? openAccPop() : closeAccPop(); });
+  document.addEventListener('click', (e) => {
+    if (!accPop.hidden && !accPop.contains(e.target) && e.target.id !== 'railAvatar') closeAccPop();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAccPop(); });
+  $('#popManage').addEventListener('click', () => { closeAccPop(); go('subscribe'); });
+  $('#popSettings').addEventListener('click', () => { closeAccPop(); go('settings'); });
+  $('#popTopup').addEventListener('click', () => { closeAccPop(); $('#topupBtn')?.click(); });
+  $('#popLogout').addEventListener('click', () => { closeAccPop(); $('#logoutBtn')?.click(); });
+
   function setTheme(val) {
     document.documentElement.setAttribute('data-theme', val);
+    try { localStorage.setItem('cloudvpn.theme', val); } catch {}
     $$('#themeSeg button').forEach(b => b.classList.toggle('is-active', b.dataset.themeVal === val));
     $('#themeBtn use').setAttribute('href', val === 'dark' ? '#ic-sun' : '#ic-moon');
     if (host) host.postMessage('theme:' + val);   // синхронизируем фон окна – без тёмных ободков
@@ -626,14 +750,6 @@
     if (host) host.postMessage(e.target.checked ? 'autostart:on' : 'autostart:off');
     toast(e.target.checked ? 'Автозапуск включён' : 'Автозапуск выключен');
   });
-  // Kill Switch: блокировка сети при разрыве туннеля (pf в рут-хелпере на macOS).
-  // Начальное состояние ставит нативный хост из сохранённого значения.
-  $('#killSwitchToggle')?.addEventListener('change', (e) => {
-    if (host) host.postMessage(e.target.checked ? 'killswitch:on' : 'killswitch:off');
-    toast(e.target.checked
-      ? 'Kill Switch включён — при разрыве сеть блокируется'
-      : 'Kill Switch выключен');
-  });
   const fxToggle = $('#fxToggle');
   if (fxToggle) {
     fxToggle.checked = fxOn;
@@ -641,6 +757,85 @@
       fxOn = fxToggle.checked; localStorage.setItem(FX_KEY, fxOn ? '1' : '0');
       applyHoliday(); updateSky(); if (fxOn) setTimeout(greetHoliday, 200);
       toast(fxOn ? 'Праздничные эффекты включены 🎉' : 'Праздничные эффекты выключены');
+    });
+  }
+  const AUTO_SRV_KEY = 'cloudvpn.autoserver', NOTIFY_KEY = 'cloudvpn.notify';
+  const AUTO_RC_KEY = 'cloudvpn.autoreconnect', KS_KEY = 'cloudvpn.killswitch', AUTO_CONN_KEY = 'cloudvpn.autoconnect';
+  const BLOCK_OFF_KEY = 'cloudvpn.blockoffline';
+  let autoServerOn = localStorage.getItem(AUTO_SRV_KEY) !== '0';
+  let notifyOn = localStorage.getItem(NOTIFY_KEY) !== '0';
+  let autoReconnectOn = localStorage.getItem(AUTO_RC_KEY) !== '0';   // по умолчанию включено
+  let killSwitchOn = localStorage.getItem(KS_KEY) === '1';          // по умолчанию выключено
+  let autoConnectOn = localStorage.getItem(AUTO_CONN_KEY) === '1';  // по умолчанию выключено
+  let blockOfflineOn = localStorage.getItem(BLOCK_OFF_KEY) === '1'; // по умолчанию выключено
+  const precipToggle = $('#precipToggle');
+  if (precipToggle) {
+    precipToggle.checked = precipOn;
+    precipToggle.addEventListener('change', () => {
+      precipOn = precipToggle.checked; localStorage.setItem(PRECIP_KEY, precipOn ? '1' : '0');
+      updateSky();
+      toast(precipOn ? 'Дождь и снег включены' : 'Дождь и снег выключены');
+    });
+  }
+  const autoServerToggle = $('#autoServerToggle');
+  if (autoServerToggle) {
+    autoServerToggle.checked = autoServerOn;
+    autoServerToggle.addEventListener('change', () => {
+      autoServerOn = autoServerToggle.checked; localStorage.setItem(AUTO_SRV_KEY, autoServerOn ? '1' : '0');
+      toast(autoServerOn ? 'Авто-сервер включён — выберу самый быстрый' : 'Авто-сервер выключен');
+    });
+  }
+  const notifyToggle = $('#notifyToggle');
+  if (notifyToggle) {
+    notifyToggle.checked = notifyOn;
+    notifyToggle.addEventListener('change', () => {
+      notifyOn = notifyToggle.checked; localStorage.setItem(NOTIFY_KEY, notifyOn ? '1' : '0');
+      toast(notifyOn ? 'Уведомления включены' : 'Уведомления выключены');
+    });
+  }
+  const autoReconnectToggle = $('#autoReconnectToggle');
+  if (autoReconnectToggle) {
+    autoReconnectToggle.checked = autoReconnectOn;
+    autoReconnectToggle.addEventListener('change', () => {
+      autoReconnectOn = autoReconnectToggle.checked; localStorage.setItem(AUTO_RC_KEY, autoReconnectOn ? '1' : '0');
+      toast(autoReconnectOn ? 'Авто-переподключение включено' : 'Авто-переподключение выключено');
+    });
+  }
+  const killSwitchToggle = $('#killSwitchToggle');
+  if (killSwitchToggle) {
+    killSwitchToggle.checked = killSwitchOn;
+    // Синхронизируем состояние с ядром на старте (вдруг настройка сохранена).
+    try { window.API.setKillSwitch(killSwitchOn); } catch {}
+    killSwitchToggle.addEventListener('change', () => {
+      killSwitchOn = killSwitchToggle.checked; localStorage.setItem(KS_KEY, killSwitchOn ? '1' : '0');
+      try { window.API.setKillSwitch(killSwitchOn); } catch {}
+      toast(killSwitchOn ? 'Kill switch включён — без VPN интернета не будет' : 'Kill switch выключен');
+    });
+  }
+  const blockOfflineToggle = $('#blockOfflineToggle');
+  if (blockOfflineToggle) {
+    blockOfflineToggle.checked = blockOfflineOn;
+    blockOfflineToggle.addEventListener('change', () => {
+      blockOfflineOn = blockOfflineToggle.checked;
+      localStorage.setItem(BLOCK_OFF_KEY, blockOfflineOn ? '1' : '0');
+      if (blockOfflineOn) {
+        applyBlockMode();
+        toast(blockRules().length
+          ? 'Блокировка работает и без VPN'
+          : 'Добавьте правило «Заблокировать» — пока блокировать нечего');
+      } else if (!connected && !connecting) {
+        // Гасим ядро, поднятое только ради блокировки.
+        window.API.vpnDisconnect(); setState('off');
+        toast('Блокировка только при включённом VPN');
+      }
+    });
+  }
+  const autoConnectToggle = $('#autoConnectToggle');
+  if (autoConnectToggle) {
+    autoConnectToggle.checked = autoConnectOn;
+    autoConnectToggle.addEventListener('change', () => {
+      autoConnectOn = autoConnectToggle.checked; localStorage.setItem(AUTO_CONN_KEY, autoConnectOn ? '1' : '0');
+      toast(autoConnectOn ? 'Буду подключаться при запуске' : 'Автоподключение при запуске выключено');
     });
   }
   $('#logoutBtn').addEventListener('click', () => {
@@ -654,7 +849,7 @@
     window.API.logout(); stopNews(); appShell.hidden = true; authView.style.display = 'grid'; showStep('choose');
     $('#passInput').value = ''; $('#emailInput').value=''; go('connect'); toast('Вы вышли из аккаунта');
   });
-  $('#tgSupportBtn').addEventListener('click', () => window.API.openExternal('https://t.me/' + cfg.telegram.botUsername));
+  $('#tgSupportBtn').addEventListener('click', () => window.API.openExternal('https://t.me/' + (cfg.telegram.supportUsername || 'cloudhelps')));
   // Почта скрыта блюром — показываем по клику.
   $('#accHandle')?.addEventListener('click', () => $('#accHandle').classList.toggle('revealed'));
 
@@ -698,7 +893,15 @@
         <div class="plan__title">${p.title}</div>
         ${priceHtml}
         <div class="plan__per">${p.per}</div>`;
-      d.addEventListener('click', () => { selectedPlan = p.id; renderPlans(); updatePayBtn(); });
+      d.dataset.plan = p.id;
+      d.addEventListener('click', () => {
+        selectedPlan = p.id;
+        // Тут был renderPlans(): он стирал innerHTML и строил ВСЕ карточки
+        // заново, из-за чего блоки на миг пропадали и переигрывали анимацию.
+        // Достаточно переставить класс активности.
+        [...el.children].forEach((c) => c.classList.toggle('is-active', c.dataset.plan === p.id));
+        updatePayBtn();
+      });
       el.appendChild(d);
     });
     updatePayBtn();
@@ -719,6 +922,20 @@
     const spStr = Number.isInteger(sp) ? sp : sp.toFixed(1);
     $('#payBtnText').textContent = `Оплатить ${spStr} ${cfg.currency}`;
     $('#payBtnSub').textContent = saleP > 0 ? `${p.title} · −${saleP}% до понедельника` : `${p.title} · через Платега`;
+    // Кнопка «Оплатить с баланса» — только для аккаунтов с кошельком (Telegram).
+    const balBtn = $('#payBalanceBtn');
+    if (balBtn) {
+      const kop = window.API.getSession()?.balance?.kopecks;
+      if (kop == null) { balBtn.hidden = true; }
+      else {
+        balBtn.hidden = false;
+        const enough = kop >= Math.round(sp * 100);
+        balBtn.disabled = !enough;
+        $('#payBalanceText').textContent = enough
+          ? `Оплатить с баланса · ${spStr} ${cfg.currency}`
+          : `На балансе ${(kop / 100).toFixed(0)} ${cfg.currency} — не хватает`;
+      }
+    }
   }
   let paying = false;
   $('#payBtn').addEventListener('click', async () => {
@@ -742,6 +959,23 @@
     } catch { toast('Не удалось создать платёж', true); }
     finally { paying = false; btn.removeAttribute('disabled'); updatePayBtn(); }
   });
+  let payingBal = false;
+  $('#payBalanceBtn')?.addEventListener('click', async () => {
+    if (payingBal) return; payingBal = true;
+    const btn = $('#payBalanceBtn'); btn.setAttribute('disabled', '');
+    const restore = $('#payBalanceText').textContent; $('#payBalanceText').textContent = 'Оплачиваем…';
+    try {
+      await window.API.payFromBalance(selectedPlan);
+      const s = await window.API.refreshSession();
+      renderSubscription(s.subscription); renderAccount(s);
+      toast('Подписка оплачена с баланса 🎉');
+    } catch (e) {
+      const m = (e && e.message) || '';
+      toast(m.includes('402') ? 'Недостаточно средств на балансе' : 'Не удалось оплатить с баланса', true);
+    } finally {
+      payingBal = false; btn.removeAttribute('disabled'); $('#payBalanceText').textContent = restore; updatePayBtn();
+    }
+  });
 
   /* ============================================================ СЕРВЕРЫ ============================================================ */
   // Список серверов больше НЕ захардкожен. Он строится из реальной подписки
@@ -750,6 +984,7 @@
   const servers = [];
   let activeId = null;
   let pendingImportSource = 'admin';   // 'sub' (подписка) | 'admin' (ручной импорт) — читается в onSub
+  let _subUrl = null, _subTries = 0;   // URL подписки + счётчик авто-ретраев импорта
   const serverList = $('#serverList');
   const pingClass = p => p == null ? 'ping-wait' : p < 80 ? 'ping-good' : p < 160 ? 'ping-mid' : 'ping-bad';
   const bars = p => { const l = p==null?0:p<80?4:p<130?3:p<200?2:1; return [7,9,11,13].map((h,i)=>`<i class="${i<l?'on':''}" style="height:${h}px"></i>`).join(''); };
@@ -765,7 +1000,9 @@
     PL:'Польша', CH:'Швейцария', ES:'Испания', IT:'Италия', CA:'Канада', BR:'Бразилия',
     SG:'Сингапур', HK:'Гонконг', AU:'Австралия', LV:'Латвия', LT:'Литва', RU:'Россия' };
   // Какие флаги реально лежат в web/flags/ (остальные → globe).
-  const FLAGS = new Set(['ae','de','fi','fr','gb','jp','nl','sg','tr','us']);
+  // Из RU_COUNTRY без своего файла остались CA, BR, HK, AU — у них сложный герб,
+  // рисовать примитивом хуже, чем глобус. Появится такая нода — добавить SVG сюда.
+  const FLAGS = new Set(['ae','ch','de','ee','es','fi','fr','gb','it','jp','lt','lv','nl','pl','ru','se','sg','tr','us']);
   const flagFor = code => FLAGS.has((code||'').toLowerCase()) ? `flags/${code.toLowerCase()}.svg` : 'flags/globe.svg';
 
   function pluralLoc(n) {
@@ -791,10 +1028,10 @@
       serverList.appendChild(li);
       return;
     }
-    list.forEach(s => {
+    const renderRow = (s) => {
       const li = document.createElement('li');
-      li.className = 'server' + (s.id === activeId ? ' is-active' : '');
-      const sub = s.city || s.code || '';
+      li.className = 'server' + (s.id === activeId ? ' is-active' : '') + (s.gaming ? ' server--game' : '');
+      const sub = s.city || (s.code && s.code !== 'XX' ? s.code : '');
       li.innerHTML = `<img class="flag-slot" src="${s.flag}" alt="" onerror="this.onerror=null;this.src='flags/globe.svg'">
         <span class="server__info"><b>${s.country}</b><small>${sub}</small></span>
         <span class="server__ping ${pingClass(s.ping)}"><span class="server__bars">${bars(s.ping)}</span>${s.ping==null?'–':s.ping+' мс'}</span>
@@ -805,7 +1042,13 @@
         rm.addEventListener('click', ev => { ev.stopPropagation(); removeImported(s.id); });
       }
       serverList.appendChild(li);
-    });
+    };
+    // Группы: сверху «Игровые серверы» (AmneziaWG), ниже обычные.
+    const games = list.filter(s => s.gaming);
+    const normal = list.filter(s => !s.gaming);
+    const addHeader = (text) => { const h = document.createElement('li'); h.className = 'server-group'; h.textContent = text; serverList.appendChild(h); };
+    if (games.length) { addHeader('🎮 Игровые серверы'); games.forEach(renderRow); }
+    if (normal.length) { if (games.length) addHeader('Обычные серверы'); normal.forEach(renderRow); }
   }
   function setActive(id) {                          // выбрать сервер БЕЗ закрытия шторки
     const s = servers.find(x => x.id === id); if (!s) { activeId = null; return; }
@@ -814,17 +1057,29 @@
     $('#pickFlag').src = s.flag;
     if (s.ping != null) $('#mPing').textContent = s.ping;
     renderServers($('#serverSearch').value);
+    syncTray();
   }
   function selectServer(id) {
+    // Ручной выбор сервера выключает авто-сервер. Иначе connect() переопределит
+    // выбор «самым быстрым» (для РФ это обычно Россия) — юзер выбирал Германию,
+    // а подключалось к России.
+    if (autoServerOn) {
+      autoServerOn = false;
+      try { localStorage.setItem(AUTO_SRV_KEY, '0'); } catch {}
+      const t = $('#autoServerToggle'); if (t) t.checked = false;
+      toast('Авто-сервер выключен — держу выбранный сервер');
+    }
     setActive(id); const s = servers.find(x => x.id === id); if (!s) return;
     closeDrawer();
     if (connected || connecting) {                 // переключение на лету — переподключаемся
-      if (s.vless && window.API.hasNativeVpn) {
+      if ((s.vless || (s.gaming && s.gamingId)) && window.API.hasNativeVpn) {
         // Сначала чисто отключаемся (даём TUN-адаптеру освободиться), затем
         // подключаемся к новому серверу — иначе ядро застревает на "Подключение".
         setState('connecting'); toast('Переключаю на ' + s.country);
         window.API.vpnDisconnect();
-        setTimeout(() => window.API.vpnConnect(buildConnectOpts(s.vless)), 900);
+        // Слать полную конфигурацию (route/rules), а не голый vless — иначе сплит
+        // по приложениям сбрасывался в route:all при смене сервера.
+        setTimeout(() => window.API.vpnConnect(buildConnectOpts(s)), 900);
       }
       else { disconnect(); toast('У сервера нет конфига — отключено', true); }
     }
@@ -842,9 +1097,28 @@
       const u = new URL(vless);
       let host = u.hostname, port = parseInt(u.port, 10) || 443;
       if (!host) { const m = vless.match(/@([^:/?#]+):?(\d+)?/); host = m ? m[1] : ''; if (m && m[2]) port = parseInt(m[2], 10); }
-      const remark = decodeURIComponent((u.hash || '').replace(/^#/, ''));
+      const rawHash = (u.hash || '').replace(/^#/, '');
+      // Кривой процент-эскейп в имени ноды не должен ронять парсинг (иначе сервер
+      // молча пропадает из списка) — откатываемся на сырую строку.
+      let remark; try { remark = decodeURIComponent(rawHash); } catch { remark = rawHash; }
       return { host, port, remark };
     } catch { return null; }
+  }
+  // Личность ноды для дедупа и поиска «той же самой» ноды между импортами.
+  // ТОЛЬКО адреса мало: на одном IP:порту может висеть несколько инбаундов,
+  // разведённых по WS-пути (у нас #1 и #2 «Обход глушилок» — 176.109.85.48:14443,
+  // /cloudws и /plws). Дедуп по хосту выкидывал второй как дубль.
+  // Ключ Reality (pbk/sid) и имя ноды в ключ НЕ входят: они ротируются, а нода
+  // остаётся той же — иначе при ротации она бы «переезжала» на новый id и
+  // слетал бы активный выбор. Разбираем регуляркой, а не URL: у vless://
+  // нестандартная схема, и парсер местами капризничает.
+  function nodeKey(vless, p) {
+    const q = String(vless || '').split('#')[0];
+    const grab = re => { const m = q.match(re); return m ? m[1] : ''; };
+    let path = grab(/[?&]path=([^&]*)/);
+    try { path = decodeURIComponent(path); } catch { }
+    const sni = grab(/[?&]sni=([^&]*)/) || grab(/[?&]host=([^&]*)/);
+    return `${p?.host || ''}:${p?.port || ''}|${path}|${sni}`;
   }
 
   // Замер задержки до сервера. В приоритете — настоящий ICMP-пинг от машины
@@ -895,37 +1169,110 @@
   let impCounter = 0;
   const IMP_KEY = 'cloudvpn.imported';
   function saveImported() {
-    const list = servers.filter(s => s.imported)
-      .map(s => ({ id: s.id, code: s.code, country: s.country, city: s.city, host: s.host, port: s.port, vless: s.vless, source: s.source }));
+    // Постоянно храним ТОЛЬКО серверы подписки. Ручной админ-импорт — инструмент
+    // тестирования: он живёт лишь в текущей сессии и не должен залипать в
+    // localStorage (иначе чужие/старые ноды, напр. с чужого сервиса, всплывают
+    // в списке, особенно когда собственная подписка ничего не отдаёт).
+    const list = servers.filter(s => s.imported && s.source === 'sub')
+      .map(s => ({ id: s.id, code: s.code, country: s.country, city: s.city, host: s.host, port: s.port, vless: s.vless, source: 'sub' }));
     localStorage.setItem(IMP_KEY, JSON.stringify(list));
   }
   function loadImported() {
     let list; try { list = JSON.parse(localStorage.getItem(IMP_KEY) || '[]'); } catch { return; }
+    let purged = false;
     list.forEach(it => {
-      if (servers.some(s => s.id === it.id || (it.vless && s.vless === it.vless))) return;
+      // Держим ТОЛЬКО явные серверы подписки. Заглушки панели, ручной админ-импорт
+      // и легаси-записи без source — выкидываем (реальные серверы подписки
+      // подтянутся заново из live-импорта, ничего не теряется).
+      if (isStubVless(it.vless, it) || it.source !== 'sub') { purged = true; return; }
+      const key = nodeKey(it.vless, { host: it.host, port: it.port || 443 });
+      if (servers.some(s => s.id === it.id || (it.vless && s.vless === it.vless) || (key && s.key === key))) return;
       const num = parseInt(String(it.id).replace('imp', ''), 10); if (num > impCounter) impCounter = num;
       servers.push({ id: it.id, code: it.code || 'XX', country: it.country || 'Сервер', city: it.city || '',
-                     host: it.host || '', port: it.port || 443, load: 0, ping: null, vless: it.vless,
-                     flag: flagFor(it.code), imported: true, source: it.source || 'admin' });
+                     host: it.host || '', port: it.port || 443, load: 0, ping: null, vless: it.vless, key,
+                     flag: flagFor(it.code), imported: true, source: 'sub' });
     });
+    if (purged) saveImported();   // почистить localStorage от заглушек и чужих импортов
     renderServers($('#serverSearch').value);
   }
-  // source: 'sub' (из подписки юзера) | 'admin' (ручной импорт админом)
-  function addImportedServer(vless, source = 'admin') {
+  // Панель отдаёт для неактивных/лимитированных/заблокированных подписок фейковые
+  // «серверы»-заглушки (адрес 0.0.0.0:1, uuid из нулей, имя вроде «Подписка
+  // закончилась» / «Много устройств»). Это не серверы — не тащим их в список.
+  function isStubVless(vless, p) {
+    return !p || p.host === '0.0.0.0' || String(p.port) === '1'
+        || /0{8}-0{4}-0{4}-0{4}-0{12}/.test(String(vless || ''));
+  }
+  // Собрать поля сервера из vless (без добавления в список). null — если это
+  // заглушка панели или строка не парсится.
+  function buildServer(vless) {
     const p = parseVlessLite(vless); if (!p || !p.host) return null;
-    // Дедуп по vless и по хосту, чтобы один сервер не задвоился.
-    const dup = servers.find(s => s.vless === vless || (s.host && s.host === p.host));
-    if (dup) return dup;
+    if (isStubVless(vless, p)) return null;   // заглушка панели, а не реальный сервер
     const code = flagToCode(p.remark);
     const labelNoFlag = String(p.remark || '').replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').trim();
     const country = RU_COUNTRY[code] || labelNoFlag || 'Сервер';
     // city/подпись: оригинальное имя ноды, если оно несёт что-то сверх страны.
     const city = (labelNoFlag && labelNoFlag.toLowerCase() !== country.toLowerCase()) ? labelNoFlag : '';
+    return { code: code || 'XX', country, city, host: p.host, port: p.port || 443, vless,
+             key: nodeKey(vless, p), flag: flagFor(code) };
+  }
+  // source: 'sub' (из подписки юзера) | 'admin' (ручной импорт админом)
+  function addImportedServer(vless, source = 'admin') {
+    const b = buildServer(vless); if (!b) return null;
+    // Дедуп по vless и по личности ноды (см. nodeKey), чтобы один сервер не задвоился.
+    const dup = servers.find(s => s.vless === vless || (s.key && s.key === b.key));
+    if (dup) return dup;
     const id = 'imp' + (++impCounter);
-    const s = { id, code: code || 'XX', country, city, host: p.host, port: p.port || 443, load: 0,
-                ping: null, vless, flag: flagFor(code), imported: true, source };
+    const s = { id, ...b, load: 0, ping: null, imported: true, source };
     servers.push(s);
     return s;
+  }
+  // Подписка — источник истины. На каждом импорте пересобираем её серверы под
+  // актуальный ответ панели: обновляем имена/ключи существующих нод, добавляем
+  // новые и выкидываем «призраков» (переименованные / сменившие IP / удалённые
+  // ноды). Без этого старые импорты копятся в localStorage и список двоится.
+  // Возвращает первый актуальный сервер (для авто-выбора).
+  function syncSubServers(items) {
+    const desired = [];
+    const seen = new Set();
+    (items || []).forEach(vless => {
+      const b = buildServer(vless);
+      if (!b || seen.has(b.key)) return;   // заглушки и дубли внутри самой подписки
+      seen.add(b.key); desired.push(b);
+    });
+    if (!desired.length) return null;   // подписка пустая/битая — не трогаем список
+    const keepKey = new Set(desired.map(b => b.key));
+    const keepVless = new Set(desired.map(b => b.vless));
+    for (let i = servers.length - 1; i >= 0; i--) {
+      const s = servers[i];
+      if (s.source !== 'sub') continue;                         // ручные (admin) не трогаем
+      if (keepVless.has(s.vless) || keepKey.has(s.key)) continue;
+      if (s.id === activeId && (connected || connecting)) continue;  // не рвём активное соединение
+      servers.splice(i, 1);
+    }
+    let first = null;
+    desired.forEach(b => {
+      let s = servers.find(x => x.vless === b.vless || (x.key && x.key === b.key));
+      if (s) {
+        // нода могла переименоваться или обновить ключ — освежаем поля на месте
+        Object.assign(s, { code: b.code, country: b.country, city: b.city, host: b.host, port: b.port,
+                           vless: b.vless, key: b.key, flag: b.flag, imported: true });
+      } else {
+        const id = 'imp' + (++impCounter);
+        s = { id, ...b, load: 0, ping: null, imported: true, source: 'sub' };
+        servers.push(s);
+      }
+      if (!first) first = s;
+    });
+    // Порядок списка = порядок подписки, то есть порядок хостов в панели (там их
+    // перетаскивают руками, и это осмысленная очередь). Без этого шага серверы
+    // стояли в порядке ПЕРВОГО появления: новая нода всегда падала в хвост, и
+    // список расходился с панелью. Ручные админ-импорты держим после подписки.
+    const rank = new Map(desired.map((b, i) => [b.key, i]));
+    const subs = [], rest = [];
+    servers.forEach(s => ((s.source === 'sub' && rank.has(s.key)) ? subs : rest).push(s));
+    subs.sort((a, b) => rank.get(a.key) - rank.get(b.key));
+    servers.splice(0, servers.length, ...subs, ...rest);
+    return first;
   }
   function removeImported(id) {
     const i = servers.findIndex(s => s.id === id); if (i < 0) return;
@@ -951,13 +1298,28 @@
     $('#importBtn')?.classList.remove('is-busy');
     const src = pendingImportSource; pendingImportSource = 'admin';
     if (!res || res.error) {
-      // тихо для авто-подписки (нет нужды пугать юзера), явно для ручного импорта
-      if (src === 'admin') toast(res?.error || 'Не удалось импортировать', true);
+      const msg = res?.error || 'Не удалось импортировать';
+      // Импорт подписки мог не зарезолвиться в короткое окно после сноса туннеля
+      // (напр. сразу после гостевого Telegram-туннеля DNS ещё восстанавливается).
+      // Тихо ретраим пару раз, прежде чем сдаться. Лимит устройств не ретраим.
+      if (src === 'sub' && _subUrl && _subTries < 2 && !/лимит устройств/i.test(msg)) {
+        _subTries++;
+        setTimeout(() => { pendingImportSource = 'sub'; window.API.importSubscription(_subUrl); }, 1500);
+        return;
+      }
+      // Тихо для авто-подписки (нет нужды пугать юзера), но лимит устройств —
+      // это действие для юзера: показываем причину, иначе список просто пуст.
+      if (src === 'admin' || /лимит устройств/i.test(msg)) toast(msg, true);
       return;
     }
     const items = res.items || [];
     let first = null;
-    items.forEach(vless => { const s = addImportedServer(vless, src); if (s && !first) first = s; });
+    if (src === 'sub') {
+      // Полная пересборка серверов подписки (иначе список двоится при смене IP/имён нод).
+      first = syncSubServers(items);
+    } else {
+      items.forEach(vless => { const s = addImportedServer(vless, src); if (s && !first) first = s; });
+    }
     saveImported(); renderServers($('#serverSearch').value);
     if (first && !activeServer()) setActive(first.id);
     measureAllPings();   // сразу показать реальный пинг по каждому серверу
@@ -966,6 +1328,8 @@
       toast(items.length > 1 ? `Добавлено серверов: ${items.length}` : 'Сервер добавлен');
     } else if (items.length) {
       toast(`Серверы подписки загружены: ${items.length}`);
+      syncTray();
+      maybeAutoConnect();   // «Подключаться при запуске» — один раз, когда серверы готовы
     }
   });
 
@@ -975,7 +1339,7 @@
     try {
       const c = await window.API.getVpnConfig();
       if (c && c.vless) {
-        const s = addImportedServer(c.vless, 'sub');
+        const s = syncSubServers([c.vless]);
         saveImported(); renderServers($('#serverSearch').value);
         if (s && !activeServer()) setActive(s.id);
       }
@@ -1012,6 +1376,7 @@
     orb.classList.remove('is-on','is-connecting'); chip.classList.remove('is-on','is-connecting'); hero.classList.remove('is-on');
     if (st === 'connecting'){ orb.classList.add('is-connecting'); chip.classList.add('is-connecting'); statusText.textContent='Подключение…'; orbLabel.textContent='Ждите…'; }
     else if (st === 'on'){ orb.classList.add('is-on'); chip.classList.add('is-on'); hero.classList.add('is-on'); statusText.textContent='Защищено'; orbLabel.textContent='Отключить'; }
+    else if (st === 'blocking'){ statusText.textContent='Блокировка активна · VPN выключен'; orbLabel.textContent='Подключить'; }
     else { statusText.textContent='Отключено'; orbLabel.textContent='Подключить'; }
   }
   orb.addEventListener('click', () => {
@@ -1021,26 +1386,54 @@
     connected ? disconnect() : connect();
   });
   const activeServer = () => servers.find(x => x.id === activeId);
-  // Полный набор опций подключения (режим/маршрут/правила) для заданного vless.
-  // Используется и при первом connect, и при переключении сервера на лету — чтобы
-  // смена сервера не сбрасывала прокси-режим/split-tunnel в full-TUN.
-  function buildConnectOpts(vless) {
-    const rules = RULES.filter(r => r.on).map(r => {
-      const def = RULE_TYPES[r.type];
-      return def ? def.emit(r.value) : null;
-    }).filter(Boolean);
-    return { vless, mode: vpnPrefs.mode, route: vpnPrefs.route, rules };
+  // Самый быстрый доступный сервер (по пингу; без пинга — любой рабочий).
+  // Вайтлист-ноды («Обход глушилок», «Обход белых списков», старое «Whitelist
+  // RU-DE») — специализированные, авто-сервер их не выбирает вовсе.
+  // Ноды переименовали в «Обход глушилок», и по старому шаблону они перестали
+  // распознаваться — поэтому ловим любое «обход …», а не конкретную формулировку.
+  function isWhitelistServer(s) {
+    const hay = `${s.country || ''} ${s.city || ''} ${s.name || ''}`.toLowerCase();
+    return /whitelist|бел(?:ых|ые)\s*спис|обход|глушилк|\bwl\b/.test(hay);
+  }
+  function pickAutoServer() {
+    const cand = servers.filter(s => s.vless && !isWhitelistServer(s));
+    if (!cand.length) return null;   // остались только вайтлист-ноды — не переключаем
+    const pinged = cand.filter(s => s.ping != null);
+    const pool = (pinged.length ? pinged : cand).slice().sort((a, b) => (a.ping ?? 9999) - (b.ping ?? 9999));
+    return pool[0];
   }
   function connect() {
     if (connecting || connected) return;
+    if (autoServerOn) { const best = pickAutoServer(); if (best && best.id !== activeId) { setActive(best.id); toast('Авто: ' + best.country); } }
     const s = activeServer();
     if (!s) return;
     if (!window.API.hasNativeVpn) { toast('VPN-ядро доступно только в приложении', true); return; }
-    if (!s.vless) { toast('Конфиг этого сервера ещё не подключён', true); return; }
+    if (!s.vless && !(s.gaming && s.gamingId)) { toast('Конфиг этого сервера ещё не подключён', true); return; }
+    intendedConnected = true; resetReconnect();
     connecting = true; setState('connecting');
-    window.API.vpnConnect(buildConnectOpts(s.vless));
+    window.API.vpnConnect(buildConnectOpts(s));
+  }
+  // Полезная нагрузка для ядра с учётом текущего режима сплита. ВАЖНО: и обычный
+  // коннект, и переключение сервера на лету должны слать ЭТО, иначе передача
+  // одной строки vless в мост сбрасывает маршрутизацию в route:all (терялся
+  // сплит по приложениям при смене сервера).
+  function buildConnectOpts(s) {
+    // s — объект сервера. Игровой (AmneziaWG) шлём по gamingId — сырой конфиг
+    // живёт в нативе, в JS его нет. Обычный — строкой vless. Строку тоже примем.
+    const exclude = vpnPrefs.route === 'apps' && vpnPrefs.split === 'exclude';
+    const target = exclude ? 'DIRECT' : 'GLOBAL';
+    const rules = RULES.filter(r => r.on).map(r => {
+      const def = RULE_TYPES[r.type];
+      return def ? def.emit(r.value, target) : null;
+    }).filter(Boolean)
+      .flatMap(line => line.split('\n')).filter(Boolean);   // «сервис» разворачивается в несколько строк
+    const route = vpnPrefs.route === 'apps' ? (exclude ? 'apps-exclude' : 'apps') : 'all';
+    const dns = vpnPrefs.dns === 'custom' ? (vpnPrefs.dnsCustom || 'auto') : (vpnPrefs.dns || 'auto');
+    const base = { mode: vpnPrefs.mode, route, rules, dns };
+    return (s && s.gaming) ? { ...base, gamingId: s.gamingId } : { ...base, vless: (s && s.vless) || s };
   }
   function disconnect(){
+    intendedConnected = false; resetReconnect();   // осознанное отключение — не переподключаемся
     if (window.API.hasNativeVpn) window.API.vpnDisconnect();
     onDisconnected();
   }
@@ -1049,6 +1442,25 @@
     $('#mDown').textContent='0.0'; $('#mUp').textContent='0.0';
     $('#ipText').textContent='IP скрыт'; $('#ipChip').classList.remove('is-on');
     setEmotion('happy'); vpnOn = false; applyMood();
+    syncTray();
+    applyBlockMode();
+  }
+
+  /* ---------- Блокировка сайтов при выключенном VPN ---------- */
+  // При выключенном VPN ядро не запущено, блокировать нечем. Поэтому держим
+  // ядро поднятым с TUN, но БЕЗ прокси: весь трафик идёт напрямую (MATCH,DIRECT),
+  // а заблокированные домены отбиваются REJECT.
+  function blockRules() {
+    const def = RULE_TYPES['block'];
+    if (!def) return [];
+    return RULES.filter(r => r.on && r.type === 'block')
+                .map(r => def.emit(r.value)).filter(Boolean);
+  }
+  function applyBlockMode() {
+    if (!window.API.hasNativeVpn) return;
+    if (connected || connecting || reconnecting) return;   // обычный VPN важнее
+    const rules = blockRules();
+    if (blockOfflineOn && rules.length) window.API.vpnConnect({ mode: 'block', rules });
   }
   function startTimers() {
     stopTimers();
@@ -1060,6 +1472,9 @@
 
   // Узнать реальный внешний IP через туннель (идёт уже через VPN)
   async function revealRealIp() {
+    // Запрос внешнего IP не мгновенный: без этого чип висел «IP скрыт» и
+    // обновлялся рывком сильно позже.
+    $('#ipText').textContent = 'IP определяем…';
     try {
       const r = await fetch('https://ipwho.is/', { cache: 'no-store' });
       const j = await r.json();
@@ -1067,11 +1482,85 @@
     } catch { $('#ipText').textContent = 'IP скрыт'; }
   }
 
+  /* ---------- Авто-переподключение и фейловер по нодам ---------- */
+  // autoReconnectOn/autoConnectOn объявлены выше, рядом с настройками подключения.
+  let intendedConnected = false;   // юзер хочет быть подключённым (не жал «Отключить»)
+  let autoConnectTried = false;    // «подключаться при запуске» — только один раз за сессию
+  function maybeAutoConnect() {
+    if (autoConnectTried || !autoConnectOn || !window.API.hasNativeVpn) return;
+    if (connected || connecting) return;
+    autoConnectTried = true;
+    // Дать пингам секунду, чтобы авто-сервер выбрал лучшую ноду.
+    setTimeout(() => { if (!connected && !connecting && activeServer()?.vless) { toast('Автоподключение…'); connect(); } }, 800);
+  }
+
+  // Отдаём в трей состояние + список серверов для быстрого меню.
+  function syncTray() {
+    try {
+      const list = servers.filter(s => s.vless).slice(0, 12)
+        .map(s => ({ id: s.id, name: (s.country || 'Сервер') + (s.city ? ' · ' + s.city : '') }));
+      window.API.traySync({ connected: !!connected, activeId, servers: list });
+    } catch {}
+  }
+  window.API.onTray(cmd => {
+    if (cmd === 'connect') { if (!connected && !connecting) connect(); }
+    else if (cmd === 'disconnect') { if (connected || connecting) disconnect(); }
+    else if (cmd.startsWith('server:')) {
+      const id = cmd.slice(7); const s = servers.find(x => x.id === id); if (!s) return;
+      if (connected || connecting) selectServer(id);
+      else { setActive(id); connect(); }
+    }
+  });
+  let reconnecting = false, rcSameTries = 0, rcTotal = 0;
+  let rcFailed = new Set();        // ноды, не поднявшиеся в этой серии — не долбим повторно
+  const RC_SAME_MAX = 2;           // попыток на той же ноде до фейловера
+  const RC_TOTAL_MAX = 8;          // общий предел серии, чтобы не крутить вечно
+  function resetReconnect() { reconnecting = false; rcSameTries = 0; rcTotal = 0; rcFailed.clear(); }
+  function pickFailoverServer() {
+    const cur = activeServer();
+    const cand = servers.filter(s => s.vless && !isWhitelistServer(s)
+      && (!cur || s.id !== cur.id) && !rcFailed.has(s.id));
+    if (!cand.length) return null;
+    const pinged = cand.filter(s => s.ping != null);
+    const pool = (pinged.length ? pinged : cand).slice().sort((a, b) => (a.ping ?? 9999) - (b.ping ?? 9999));
+    return pool[0];
+  }
+  function driveReconnect() {
+    if (!autoReconnectOn || !intendedConnected) { resetReconnect(); onDisconnected(); return; }
+    if (rcTotal >= RC_TOTAL_MAX) {
+      resetReconnect(); onDisconnected();
+      toast('Не удалось переподключиться — проверьте интернет', true);
+      if (notifyOn) winNotify('VPN не смог переподключиться', 'CloudVPN');
+      return;
+    }
+    rcTotal++; reconnecting = true; connecting = true; setState('connecting');
+    let target;
+    if (rcSameTries < RC_SAME_MAX && activeServer()) {
+      rcSameTries++; target = activeServer();
+      toast(`Соединение потеряно, переподключаюсь… (${rcSameTries})`);
+    } else {
+      const cur = activeServer();
+      target = pickFailoverServer();
+      if (!target) { resetReconnect(); onDisconnected(); toast('Нет доступных серверов для переподключения', true); return; }
+      if (cur) rcFailed.add(cur.id);
+      setActive(target.id); rcSameTries = 0;
+      toast('Переключаюсь на ' + target.country);
+    }
+    window.API.vpnConnect(buildConnectOpts(target));
+  }
+
   /* ---------- Реальный статус от ядра Mihomo (через C#-мост) ---------- */
   window.API.onVpn(st => {
     if (!st || !st.state) return;
+    // На экране входа ядро может быть поднято ради гостевого Telegram-туннеля
+    // (кнопка «Разблокировать Telegram»). Его connect/connected/disconnected НЕ
+    // должны трогать состояние основного приложения, иначе после входа UI висит
+    // «подключено» без реального сервера. Пока не показан appShell — игнорируем.
+    if (!appShell || appShell.hidden) return;
     if (st.state === 'connecting') { connecting = true; setState('connecting'); return; }
     if (st.state === 'error') {
+      // Во время серии переподключения ошибка = неудачная попытка → следующая нода.
+      if (reconnecting) { driveReconnect(); return; }
       onDisconnected();
       const head = st.error ? ('Не удалось подключиться: ' + st.error) : 'Не удалось подключиться';
       toast(head, true);
@@ -1081,17 +1570,35 @@
       }
       return;
     }
+    if (st.state === 'dropped') {
+      // Ядро упало само. Если включено авто-переподключение и юзер хотел быть в
+      // сети — запускаем серию (та же нода → фейловер), иначе просто отключаемся.
+      if (connected || connecting) {
+        if (autoReconnectOn && intendedConnected) driveReconnect();
+        else { onDisconnected(); playChime('disconnect'); toast('Соединение потеряно', true); if (notifyOn) winNotify('VPN отключён', 'CloudVPN'); }
+      }
+      return;
+    }
+    if (st.state === 'blocking') {   // ядро поднято только ради блокировки
+      connected = false; connecting = false; setState('blocking');
+      return;
+    }
     if (st.state === 'disconnected') {
-      if (connected || connecting) { onDisconnected(); playChime('disconnect'); toast('Отключено'); }
+      if (reconnecting) return;   // серию переподключения не сбиваем
+      if (connected || connecting) { onDisconnected(); playChime('disconnect'); toast('Отключено'); if (notifyOn) winNotify('VPN отключён', 'CloudVPN'); }
       return;
     }
     if (st.state === 'connected') {
       if (!connected) {
         connected = true; connecting = false; setState('on');
+        resetReconnect(); intendedConnected = true;
         sessionStart = Date.now(); totalDownMB = totalUpMB = 0; startTimers();
-        setEmotion('cool'); vpnOn = true; applyMood(); playChime('connect');
-        const s = activeServer(); toast('Подключено' + (s ? ' · ' + s.country : ''));
+        vpnOn = true; applyMood(); playChime('connect');
+        const s = activeServer(); const where = s ? ' · ' + s.country : '';
+        toast('Подключено' + where);
+        if (notifyOn) winNotify('Защищено' + where, 'CloudVPN');
         revealRealIp();
+        syncTray();
       }
       // реальная статистика
       if (typeof st.ping === 'number') {
@@ -1108,27 +1615,95 @@
     }
   });
 
-  /* ---------- Настройки туннеля (mode/route/apps) — реально влияют на коннект ---------- */
+  /* ---------- Настройки туннеля (route/apps) — реально влияют на коннект ---------- */
   const PREF_KEY = 'cloudvpn.vpnprefs';
-  const defaultPrefs = { mode: 'tun', route: 'all' };
+  const defaultPrefs = { mode: 'tun', route: 'all', split: 'include', dns: 'auto', dnsCustom: '', closeTray: true, keepAlive: false };
   let vpnPrefs;
   try { vpnPrefs = { ...defaultPrefs, ...(JSON.parse(localStorage.getItem(PREF_KEY) || 'null') || {}) }; }
   catch { vpnPrefs = { ...defaultPrefs }; }
+  vpnPrefs.mode = 'tun';   // единственный режим — TUN (весь трафик системы через VPN)
   function savePrefs(){ try { localStorage.setItem(PREF_KEY, JSON.stringify(vpnPrefs)); } catch {} }
-  const modeHints = {
-    proxy: 'Прокси-режим: SOCKS5/HTTP на 127.0.0.1:7897. Без admin-прав, маршрутизирует только то, что использует прокси.',
-    tun:   'TUN-режим: весь системный трафик через VPN (через системный хелпер).',
-  };
-  function applyModeUI(){
-    $$('.seg--mode button').forEach(b => b.classList.toggle('is-active', b.dataset.mode === vpnPrefs.mode));
-    $('#modeHint').textContent = modeHints[vpnPrefs.mode];
+  // Свой дропдаун вместо нативного <select>: у нативного список рисует ОС своим
+  // системным шрифтом (Segoe UI), из-за чего он выбивался из шрифта приложения.
+  // Этот использует те же токены (--f-ui, карточки, тени), что и весь интерфейс.
+  function miniSelect(el, initial, onChange) {
+    if (!el) return;
+    const btn = el.querySelector('.mini-select__btn');
+    const valEl = el.querySelector('.mini-select__val');
+    const menu = el.querySelector('.mini-select__menu');
+    const items = Array.from(menu.querySelectorAll('li'));
+    const setValue = (v, fire) => {
+      const it = items.find(i => i.dataset.value === v) || items[0];
+      valEl.textContent = it.textContent;
+      items.forEach(i => i.classList.toggle('is-sel', i === it));
+      el.dataset.value = it.dataset.value;
+      if (fire) onChange(it.dataset.value);
+    };
+    const onDoc = (e) => { if (!el.contains(e.target)) close(); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    // Пока меню открыто, поднимаем родительскую панель над соседними, иначе
+    // выпадающий список уходит ПОД следующую панель (напр. «Диагностика»).
+    const panel = el.closest('.panel');
+    const open = () => {
+      menu.hidden = false; el.classList.add('open');
+      if (panel) { panel.style.position = 'relative'; panel.style.zIndex = '30'; }
+      requestAnimationFrame(() => menu.classList.add('show'));
+      document.addEventListener('click', onDoc, true);
+      document.addEventListener('keydown', onKey);
+    };
+    const close = () => {
+      el.classList.remove('open'); menu.classList.remove('show');
+      document.removeEventListener('click', onDoc, true);
+      document.removeEventListener('keydown', onKey);
+      setTimeout(() => { if (!el.classList.contains('open')) { menu.hidden = true; if (panel) panel.style.zIndex = ''; } }, 180);
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); el.classList.contains('open') ? close() : open(); });
+    items.forEach(i => i.addEventListener('click', () => { setValue(i.dataset.value, true); close(); }));
+    setValue(initial, false);
   }
-  $$('.seg--mode button').forEach(b => b.addEventListener('click', () => {
-    vpnPrefs.mode = b.dataset.mode; savePrefs(); applyModeUI();
-    toast(vpnPrefs.mode === 'tun' ? 'Режим TUN — весь трафик' : 'Режим прокси (127.0.0.1:7897)');
-    if (connected || connecting) toast('Применится после переподключения', false);
-  }));
-  applyModeUI();
+  // Свой DNS: 1.1.1.1/8.8.8.8 в РФ временами душат, поэтому даём вписать любой
+  // сервер (IP, IP:порт или DoH-URL, можно несколько через запятую).
+  const sanitizeDns = (s) => String(s || '').trim().replace(/[^A-Za-z0-9.:/_,\- ]/g, '').slice(0, 200);
+  const dnsCustomInput = $('#dnsCustom');
+  const syncDnsCustom = () => { if (dnsCustomInput) dnsCustomInput.hidden = (vpnPrefs.dns !== 'custom'); };
+  if (dnsCustomInput) {
+    dnsCustomInput.value = vpnPrefs.dnsCustom || '';
+    dnsCustomInput.addEventListener('change', () => {
+      vpnPrefs.dnsCustom = sanitizeDns(dnsCustomInput.value);
+      dnsCustomInput.value = vpnPrefs.dnsCustom; savePrefs();
+      if (connected || connecting) toast('DNS применится после переподключения');
+    });
+  }
+  miniSelect($('#dnsSelect'), vpnPrefs.dns || 'auto', (v) => {
+    vpnPrefs.dns = v; savePrefs();
+    syncDnsCustom();
+    if (v === 'custom' && dnsCustomInput) dnsCustomInput.focus();
+    if (connected || connecting) toast('DNS применится после переподключения');
+  });
+  syncDnsCustom();
+  const trayTgl = $('#closeTrayToggle');
+  if (trayTgl) {
+    trayTgl.checked = vpnPrefs.closeTray !== false;
+    const pushTray = () => { try { window.API.setCloseTray && window.API.setCloseTray(vpnPrefs.closeTray !== false); } catch {} };
+    pushTray();
+    trayTgl.addEventListener('change', () => { vpnPrefs.closeTray = trayTgl.checked; savePrefs(); pushTray(); });
+  }
+  const kaTgl = $('#keepAliveToggle');
+  if (kaTgl) {
+    kaTgl.checked = vpnPrefs.keepAlive === true;
+    const pushKa = () => { try { window.API.setKeepAlive && window.API.setKeepAlive(vpnPrefs.keepAlive === true); } catch {} };
+    pushKa();   // сообщаем нативу текущее состояние на старте
+    kaTgl.addEventListener('change', () => {
+      vpnPrefs.keepAlive = kaTgl.checked; savePrefs(); pushKa();
+      if (kaTgl.checked) toast('Прямые соединения не будут рваться при вкл/выкл VPN');
+    });
+  }
+  const proxyCopy = $('#proxyCopyBtn');
+  if (proxyCopy) proxyCopy.addEventListener('click', async () => {
+    const addr = '127.0.0.1:7897';
+    try { await navigator.clipboard.writeText(addr); toast('Скопировано: ' + addr); } catch { toast(addr); }
+  });
+  const TUN_HINT = 'Весь трафик системы идёт через VPN (режим TUN).';
 
   /* ---------- Split-tunneling: универсальные правила (процесс / домен / ip / geo) ---------- */
   // Каждое правило: { id, type, value, name, on }
@@ -1139,21 +1714,41 @@
   // CSV rule line and confuse the parser. We also forbid bare DIRECT/REJECT
   // injection at the end of value.
   const sanRule = v => String(v || '').replace(/[,\r\n\t]/g, '').trim();
+  // Готовые наборы доменов для популярных сервисов. Один сервис = НЕСКОЛЬКО
+  // доменов: например у YouTube страница на youtube.com, а само видео льётся с
+  // googlevideo.com, превью с ytimg.com — по одному «youtube» видео не заработает.
+  const SERVICE_PRESETS = {
+    youtube:   { name: 'YouTube',     badge: '▶',  domains: ['youtube.com', 'youtu.be', 'youtube-nocookie.com', 'googlevideo.com', 'ytimg.com', 'ggpht.com'] },
+    discord:   { name: 'Discord',     badge: '🎧', domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net', 'discord.media'] },
+    instagram: { name: 'Instagram',   badge: '📸', domains: ['instagram.com', 'cdninstagram.com', 'ig.me'] },
+    tiktok:    { name: 'TikTok',      badge: '🎵', domains: ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com', 'ibytedtos.com'] },
+    twitch:    { name: 'Twitch',      badge: '🟣', domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'] },
+    spotify:   { name: 'Spotify',     badge: '🎶', domains: ['spotify.com', 'scdn.co', 'spotifycdn.com'] },
+    twitter:   { name: 'X / Twitter', badge: '𝕏',  domains: ['x.com', 'twitter.com', 'twimg.com', 't.co'] },
+  };
+  // emit(value, target): target = 'GLOBAL' (через VPN) или 'DIRECT' (мимо VPN,
+  // для инверсного сплита «всё кроме выбранных»).
   const RULE_TYPES = {
-    'process':        { label: 'Процесс',         badge: '💻',  hint: 'имя процесса',  placeholder: 'Google Chrome',
-                        emit: v => `PROCESS-NAME,${sanRule(v)},GLOBAL` },
+    // Блокировка: emit игнорирует target — сайт закрывается всегда, независимо
+    // от режима сплита (в инверсном режиме DIRECT его бы «пропустил»).
+    'block':          { label: 'Заблокировать',  badge: '⛔',  hint: 'сайт не будет открываться', placeholder: 'example.com',
+                        emit: (v) => `DOMAIN-SUFFIX,${sanRule(v)},REJECT` },
+    'service':        { label: 'Сервис',          badge: '⭐',  hint: 'готовый набор доменов', placeholder: 'youtube',
+                        emit: (v, t) => (SERVICE_PRESETS[v]?.domains || []).map(d => `DOMAIN-SUFFIX,${sanRule(d)},${t}`).join('\n') },
+    'process':        { label: 'Процесс',         badge: '💻',  hint: 'имя .exe',      placeholder: 'chrome.exe',
+                        emit: (v, t) => `PROCESS-NAME,${sanRule(v)},${t}` },
     'domain-suffix':  { label: 'По суффиксу',     badge: '🌐',  hint: 'домен и всё под ним', placeholder: 'youtube.com',
-                        emit: v => `DOMAIN-SUFFIX,${sanRule(v)},GLOBAL` },
+                        emit: (v, t) => `DOMAIN-SUFFIX,${sanRule(v)},${t}` },
     'domain-keyword': { label: 'Слово в домене',  badge: 'Tt',  hint: 'подстрока в имени домена', placeholder: 'google',
-                        emit: v => `DOMAIN-KEYWORD,${sanRule(v)},GLOBAL` },
+                        emit: (v, t) => `DOMAIN-KEYWORD,${sanRule(v)},${t}` },
     'geosite':        { label: 'GeoSite',         badge: '📚',  hint: 'тег из meta-rules-dat',  placeholder: 'youtube',
-                        emit: v => `GEOSITE,${sanRule(v)},GLOBAL` },
+                        emit: (v, t) => `GEOSITE,${sanRule(v)},${t}` },
     'ip-cidr':        { label: 'IP-CIDR',         badge: '🛣',  hint: 'IP или подсеть',         placeholder: '8.8.8.8/32',
-                        emit: v => `IP-CIDR,${sanRule(v)},GLOBAL,no-resolve` },
+                        emit: (v, t) => `IP-CIDR,${sanRule(v)},${t},no-resolve` },
     'asn':            { label: 'ASN',             badge: '#',   hint: 'номер автономной системы', placeholder: '13335',
-                        emit: v => `IP-ASN,${sanRule(v)},GLOBAL,no-resolve` },
+                        emit: (v, t) => `IP-ASN,${sanRule(v)},${t},no-resolve` },
     'geoip':          { label: 'GeoIP',           badge: '📍',  hint: 'двухбуквенный код страны', placeholder: 'RU',
-                        emit: v => `GEOIP,${sanRule(v).toUpperCase()},GLOBAL,no-resolve` },
+                        emit: (v, t) => `GEOIP,${sanRule(v).toUpperCase()},${t},no-resolve` },
   };
   // SVG-иконки только для известных .exe (process); для остальных типов рисуем
   // эмодзи-бейдж из RULE_TYPES.badge.
@@ -1163,11 +1758,6 @@
     'steam.exe':        { icon: 'steam',        name: 'Steam' },
     'discord.exe':      { icon: 'discord',      name: 'Discord' },
     'qbittorrent.exe':  { icon: 'qbittorrent',  name: 'qBittorrent' },
-    'google chrome':    { icon: 'googlechrome', name: 'Google Chrome' },
-    'telegram':         { icon: 'telegram',     name: 'Telegram' },
-    'steam':            { icon: 'steam',        name: 'Steam' },
-    'discord':          { icon: 'discord',      name: 'Discord' },
-    'qbittorrent':      { icon: 'qbittorrent',  name: 'qBittorrent' },
   };
 
   const RULES_KEY = 'cloudvpn.rules.v1';
@@ -1187,7 +1777,90 @@
       }
     }
   } catch {}
+  // Чиним старые «сломанные» правила: одиночный домен/ключевое слово вида
+  // «youtube» (без точки) не ловит googlevideo.com и т.п. — заменяем на готовый
+  // сервис-пресет с полным набором доменов.
+  (function migrateBareServices() {
+    let changed = false;
+    RULES = RULES.map(r => {
+      if ((r.type === 'domain-suffix' || r.type === 'domain-keyword')
+          && !String(r.value).includes('.')
+          && SERVICE_PRESETS[String(r.value).toLowerCase()]) {
+        const key = String(r.value).toLowerCase(); changed = true;
+        return { ...r, type: 'service', value: key, name: SERVICE_PRESETS[key].name };
+      }
+      return r;
+    });
+    if (changed) { try { localStorage.setItem(RULES_KEY, JSON.stringify(RULES)); } catch {} }
+  })();
   function saveRules(){ try { localStorage.setItem(RULES_KEY, JSON.stringify(RULES)); } catch {} }
+
+  // Перетаскивание правил за «ручку». В mihomo приоритет у правил СВЕРХУ ВНИЗ
+  // (первое совпадение выигрывает), а порядок эмита = порядок массива RULES
+  // (см. buildConnectOpts). Плавный transform-драг: поднятая строка едет за
+  // курсором, соседи расступаются, на отпускании строка мягко встаёт в слот.
+  function commitRuleMove(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= RULES.length || to >= RULES.length) { renderApps(); return; }
+    const [moved] = RULES.splice(from, 1);
+    RULES.splice(to, 0, moved);
+    saveRules(); renderApps();
+    if ((connected || connecting) && vpnPrefs.route === 'apps') toast('Порядок изменён, применится после переподключения', false);
+  }
+  let _ruleDragging = false;
+  function startRuleDrag(downEv, li) {
+    if (_ruleDragging) return;
+    if (downEv.button != null && downEv.button !== 0) return;   // только левая кнопка / тач
+    const list = $('#appList');
+    const rows = Array.from(list.querySelectorAll('.app-row:not(.app-row--empty)'));
+    const fromIndex = rows.indexOf(li);
+    if (fromIndex < 0 || rows.length < 2) return;
+    downEv.preventDefault();
+    _ruleDragging = true;
+    const step = Math.max(1, rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top);
+    const startY = downEv.clientY;
+    let toIndex = fromIndex;
+
+    document.body.classList.add('is-reordering');
+    li.classList.add('dragging');
+    li.style.transition = 'none';   // поднятая строка едет за пальцем без задержки
+    li.style.zIndex = '6';
+
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY;
+      li.style.transform = `translateY(${dy}px) scale(1.03)`;
+      let ti = fromIndex + Math.round(dy / step);
+      ti = Math.max(0, Math.min(rows.length - 1, ti));
+      if (ti !== toIndex) {
+        toIndex = ti;
+        rows.forEach((row, k) => {
+          if (row === li) return;
+          let shift = 0;
+          if (fromIndex < toIndex && k > fromIndex && k <= toIndex) shift = -step;
+          else if (fromIndex > toIndex && k >= toIndex && k < fromIndex) shift = step;
+          row.style.transform = shift ? `translateY(${shift}px)` : '';
+        });
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      const moved = toIndex !== fromIndex;
+      const finalDy = (toIndex - fromIndex) * step;
+      li.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1)';
+      li.style.transform = `translateY(${finalDy}px) scale(1)`;   // мягко встаёт в слот
+      li.classList.remove('dragging');
+      window.setTimeout(() => {
+        document.body.classList.remove('is-reordering');
+        _ruleDragging = false;
+        if (moved) commitRuleMove(fromIndex, toIndex);   // ре-рендер снимет все transform
+        else { li.style.transform = ''; li.style.transition = ''; li.style.zIndex = ''; }
+      }, moved ? 200 : 150);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  }
 
   function colorFor(s) {
     s = String(s || '');
@@ -1200,6 +1873,10 @@
       if (known) return `<img src="appicons/${known.icon}.svg" alt="">`;
       const letter = (r.name || r.value || '?').replace(/\.exe$/i, '').trim().charAt(0).toUpperCase() || '?';
       return `<span class="app-row__initial" style="background:${colorFor(r.value)}">${letter}</span>`;
+    }
+    if (r.type === 'service') {
+      const p = SERVICE_PRESETS[r.value];
+      return `<span class="app-row__initial" style="background:${colorFor(r.value)};font-size:14px">${p ? p.badge : '⭐'}</span>`;
     }
     const t = RULE_TYPES[r.type];
     return `<span class="app-row__initial" style="background:${colorFor(r.type)};font-size:13px">${t ? t.badge : '?'}</span>`;
@@ -1219,17 +1896,27 @@
     RULES.forEach(r => {
       const li = document.createElement('li');
       li.className = 'app-row';
+      li.dataset.id = r.id;
       const subline = r.type === 'process'
         ? r.value
-        : `${typeLabel(r.type)} · ${r.value}`;
+        : r.type === 'service'
+          ? `Сервис · ${SERVICE_PRESETS[r.value]?.domains.length || 0} доменов`
+          : `${typeLabel(r.type)} · ${r.value}`;
       li.innerHTML =
+        `<span class="app-row__grip" title="Перетащите, чтобы изменить приоритет" aria-label="Перетащить">` +
+          `<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">` +
+          `<circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/>` +
+          `<circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/>` +
+          `<circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></svg>` +
+        `</span>` +
         `<span class="app-row__icon">${iconHtml(r)}</span>` +
         `<div class="app-row__main"><b>${r.name || r.value}</b><small>${subline}</small></div>` +
         `<button class="app-row__rm" type="button" title="Убрать" aria-label="Убрать">&times;</button>` +
         `<input type="checkbox" ${r.on ? 'checked' : ''} hidden>` +
         `<span class="track"></span>`;
       const toggle = (ev) => {
-        if (ev.target.closest('.app-row__rm')) return;
+        if (document.body.classList.contains('is-reordering')) return;   // клик после драга не переключает
+        if (ev.target.closest('.app-row__rm') || ev.target.closest('.app-row__grip')) return;
         r.on = !r.on; li.querySelector('input').checked = r.on; saveRules();
         if ((connected || connecting) && vpnPrefs.route === 'apps') toast('Применится после переподключения', false);
       };
@@ -1239,17 +1926,109 @@
         RULES = RULES.filter(x => x.id !== r.id); saveRules(); renderApps();
         if ((connected || connecting) && vpnPrefs.route === 'apps') toast('Применится после переподключения', false);
       });
+      // Тащим строку за «ручку» — плавный transform-драг (см. startRuleDrag).
+      li.querySelector('.app-row__grip').addEventListener('pointerdown', (ev) => startRuleDrag(ev, li));
       el.appendChild(li);
     });
+    const hint = $('#appOrderHint');
+    if (hint) hint.hidden = RULES.length < 2;
+    renderSvcPresets();
+  }
+
+  // Чипы быстрого добавления популярных сервисов (YouTube и т.п.).
+  function renderSvcPresets() {
+    const el = $('#svcPresets'); if (!el) return;
+    el.innerHTML = '';
+    Object.keys(SERVICE_PRESETS).forEach(key => {
+      const p = SERVICE_PRESETS[key];
+      const added = RULES.some(r => r.type === 'service' && r.value === key);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'svc-chip' + (added ? ' is-added' : '');
+      chip.innerHTML = `<span>${p.badge}</span>${p.name}`;
+      chip.title = p.domains.join(', ');
+      chip.addEventListener('click', () => {
+        if (RULES.some(r => r.type === 'service' && r.value === key)) { toast(p.name + ' уже в списке'); return; }
+        addRule('service', key, p.name);
+      });
+      el.appendChild(chip);
+    });
+  }
+
+  /* ---------- Профили раздельного туннеля (route + split + правила) ---------- */
+  const PROFILES_KEY = 'cloudvpn.profiles.v1';
+  let PROFILES = [];
+  try { const p = JSON.parse(localStorage.getItem(PROFILES_KEY) || '[]'); if (Array.isArray(p)) PROFILES = p; } catch {}
+  function saveProfiles() { try { localStorage.setItem(PROFILES_KEY, JSON.stringify(PROFILES)); } catch {} }
+  function currentAsProfile(name) {
+    return { id: 'prof_' + Date.now().toString(36) + Math.floor(Math.random() * 1000), name,
+             route: vpnPrefs.route, split: vpnPrefs.split,
+             rules: RULES.map(r => ({ type: r.type, value: r.value, name: r.name, on: r.on })) };
+  }
+  function applyProfile(p) {
+    vpnPrefs.route = p.route || 'all';
+    vpnPrefs.split = p.split || 'include';
+    savePrefs();
+    RULES = (p.rules || []).map(r => ({ ...r, id: 'rule_' + Date.now().toString(36) + Math.floor(Math.random() * 1000) }));
+    saveRules();
+    $$('.seg--route button').forEach(b => b.classList.toggle('is-active', b.dataset.route === vpnPrefs.route));
+    $$('.seg--split button').forEach(b => b.classList.toggle('is-active', b.dataset.split === vpnPrefs.split));
+    $('#appRoutes').hidden = vpnPrefs.route !== 'apps';
+    refreshRouteHint(); renderApps(); renderProfiles();
+    toast((connected || connecting) ? `Профиль «${p.name}» — применится после переподключения` : `Профиль «${p.name}» применён`);
+  }
+  function renderProfiles() {
+    const el = $('#profileBar'); if (!el) return;
+    el.innerHTML = '';
+    // Профили привязаны к режиму сплита: набор правил означает ПРОТИВОПОЛОЖНОЕ в
+    // «только выбранные» (→ в VPN) и «все, кроме выбранных» (→ в DIRECT). Поэтому
+    // показываем только профили текущего режима, чтобы случайно не применить
+    // «исключающий» профиль во «включающем» режиме (и наоборот).
+    const mode = vpnPrefs.split || 'include';
+    PROFILES.filter(p => (p.split || 'include') === mode).forEach(p => {
+      const chip = document.createElement('button');
+      chip.type = 'button'; chip.className = 'svc-chip'; chip.title = 'Применить профиль';
+      chip.innerHTML = `<span>💾</span>${p.name}`;
+      chip.addEventListener('click', () => applyProfile(p));
+      const x = document.createElement('span'); x.className = 'prof-x'; x.textContent = '×'; x.title = 'Удалить профиль';
+      x.addEventListener('click', ev => { ev.stopPropagation(); PROFILES = PROFILES.filter(q => q.id !== p.id); saveProfiles(); renderProfiles(); });
+      chip.appendChild(x);
+      el.appendChild(chip);
+    });
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'svc-chip prof-add';
+    add.innerHTML = '<span>+</span>Сохранить профиль';
+    add.addEventListener('click', () => {
+      const inp = document.createElement('input');
+      inp.className = 'prof-input'; inp.placeholder = 'Название профиля'; inp.maxLength = 24;
+      add.replaceWith(inp); inp.focus();
+      let committed = false;
+      const commit = () => {
+        if (committed) return; committed = true;
+        const name = inp.value.trim();
+        if (name) { PROFILES.push(currentAsProfile(name)); saveProfiles(); toast('Профиль сохранён'); }
+        renderProfiles();
+      };
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { committed = true; renderProfiles(); } });
+      inp.addEventListener('blur', commit);
+    });
+    el.appendChild(add);
   }
 
   function addRule(type, value, name) {
     type = (type || '').toLowerCase();
-    const def = RULE_TYPES[type];
-    if (!def) { toast('Неизвестный тип правила', true); return false; }
     value = (value || '').trim();
     if (!value) { toast('Пустое значение', true); return false; }
-    // macOS: имя процесса как есть (без .exe)
+    // «youtube» без точки — это не домен, а намерение «пусти YouTube»: разворачиваем
+    // в готовый сервис-пресет (страница + видео-CDN googlevideo.com и т.п.).
+    if ((type === 'domain-suffix' || type === 'domain-keyword') && !value.includes('.')
+        && SERVICE_PRESETS[value.toLowerCase()]) {
+      const key = value.toLowerCase();
+      type = 'service'; value = key; name = SERVICE_PRESETS[key].name;
+    }
+    const def = RULE_TYPES[type];
+    if (!def) { toast('Неизвестный тип правила', true); return false; }
+    if (type === 'process' && !/\.exe$/i.test(value)) value = value + '.exe';
     if (type === 'geoip') value = value.toUpperCase();
     const dup = RULES.find(r => r.type === type && r.value.toLowerCase() === value.toLowerCase());
     if (dup) { toast('Уже в списке'); return false; }
@@ -1269,20 +2048,35 @@
   }
   // Legacy wrapper — старый код вызывает addApp(binary)
   function addApp(binary) { return addRule('process', binary); }
+  const SPLIT_HINT = () => vpnPrefs.split === 'exclude'
+    ? 'Через VPN идёт весь трафик, КРОМЕ выбранных приложений. Игры/голос оставляйте здесь — у них останется обычный пинг.'
+    : 'Через VPN пойдёт трафик только выбранных приложений (mihomo process-name).';
+  function refreshRouteHint() {
+    $('#modeHint').textContent = vpnPrefs.route === 'apps' ? SPLIT_HINT() : TUN_HINT;
+  }
   $$('.seg--route button').forEach(b => b.addEventListener('click', () => {
     $$('.seg--route button').forEach(x => x.classList.remove('is-active')); b.classList.add('is-active');
     const apps = b.dataset.route === 'apps';
     vpnPrefs.route = apps ? 'apps' : 'all'; savePrefs();
     if (connected || connecting) toast('Применится после переподключения', false);
     $('#appRoutes').hidden = !apps;
-    $('#modeHint').textContent = apps
-      ? 'Через VPN пойдёт трафик только выбранных приложений (mihomo process-name).'
-      : modeHints[vpnPrefs.mode];
-    toast(apps ? 'Маршрутизация: выбранные приложения' : 'Маршрутизация: весь ПК');
+    refreshRouteHint();
+    toast(apps ? 'Маршрутизация: по приложениям' : 'Маршрутизация: весь ПК');
+  }));
+  // Направление сплита: только выбранные → VPN, либо всё кроме выбранных → VPN.
+  $$('.seg--split button').forEach(b => b.addEventListener('click', () => {
+    $$('.seg--split button').forEach(x => x.classList.remove('is-active')); b.classList.add('is-active');
+    vpnPrefs.split = b.dataset.split === 'exclude' ? 'exclude' : 'include'; savePrefs();
+    if (connected || connecting) toast('Применится после переподключения', false);
+    refreshRouteHint();
+    renderProfiles();   // профили свои для каждого режима — обновляем список чипов
+    toast(vpnPrefs.split === 'exclude' ? 'Через VPN: всё, кроме выбранных' : 'Через VPN: только выбранные');
   }));
   // На загрузке — синхронизировать переключатели с восстановленными prefs.
   $$('.seg--route button').forEach(b => b.classList.toggle('is-active', b.dataset.route === vpnPrefs.route));
+  $$('.seg--split button').forEach(b => b.classList.toggle('is-active', b.dataset.split === vpnPrefs.split));
   $('#appRoutes').hidden = vpnPrefs.route !== 'apps';
+  refreshRouteHint(); renderProfiles();
   // «Добавить правило» — модалка с типом (процесс / домен / IP / geo)
   const picker = $('#appPicker');
   const pickerList = $('#appPickerList');
@@ -1314,7 +2108,7 @@
       valueHint.textContent = def.label + ' — ' + def.hint;
       valueInput.value = '';
       valueInput.placeholder = def.placeholder;
-      valueHelp.textContent = `Mihomo: ${def.emit(def.placeholder)}`;
+      valueHelp.textContent = `Mihomo: ${def.emit(def.placeholder, 'GLOBAL').split('\n')[0]}`;
       setTimeout(() => valueInput.focus(), 80);
     }
   }
@@ -1382,7 +2176,7 @@
   });
   $('#appPickerManual').addEventListener('click', async e => {
     e.preventDefault();
-    const v = await promptModal('Имя процесса', { placeholder: 'например, Brave Browser' });
+    const v = await promptModal('Имя процесса', { placeholder: 'например, brave.exe' });
     if (v) { addRule('process', v); pickerClose(); }
   });
 
@@ -1441,16 +2235,38 @@
     function showUpd(){ updBar.hidden = false; requestAnimationFrame(() => updBar.classList.add('show')); }
     function hideUpd(){ updBar.classList.remove('show'); setTimeout(() => updBar.hidden = true, 320); }
     let updating = false;
+    let userUpdCheck = false;   // true, когда проверку запустил сам юзер кнопкой
+    const checkBtn = $('#checkUpdBtn');
+    const setCheckBusy = b => { if (checkBtn) { checkBtn.disabled = b; checkBtn.classList.toggle('is-busy', b); } };
+    if (checkBtn) checkBtn.addEventListener('click', () => {
+      userUpdCheck = true; setCheckBusy(true); toast('Проверяю обновления…');
+      window.API.updateCheck();
+      // страховка, если ответа не будет (нет сети и т.п.)
+      setTimeout(() => { if (userUpdCheck) { userUpdCheck = false; setCheckBusy(false); } }, 10000);
+    });
     window.API.onUpdate(ev => {
+      // Любой финальный ответ снимает «занятость» с кнопки проверки.
+      if (ev.type !== 'progress' && ev.type !== 'installing') setCheckBusy(false);
       if (ev.type === 'available') {
+        updating = false;
         const v = ev.info?.version || '';
         // Для инкрементального апдейта качается маленькая дельта — полный размер
         // не показываем, чтобы не пугать.
         const tail = ev.info?.incremental ? ' · инкрементально'
           : (ev.info?.size ? ' · ' + fmtSize(ev.info.size) : '');
         $('#updText').innerHTML = `Доступно обновление <b>${v}</b>${tail}`;
+        updBar.title = (ev.info?.notes || '').trim();   // «что нового» — по наведению
         $('#updProgWrap').hidden = true; $('#updProg').style.width = '0';
         $('#updNow').disabled = false; $('#updNow').textContent = 'Обновить';
+        showUpd();
+      } else if (ev.type === 'ready') {
+        // Обновление уже скачано и проверено в фоне — установка мгновенная.
+        updating = false;
+        const v = ev.info?.version || '';
+        $('#updText').innerHTML = `Обновление <b>${v}</b> готово`;
+        updBar.title = (ev.info?.notes || '').trim();
+        $('#updProgWrap').hidden = true; $('#updProg').style.width = '0';
+        $('#updNow').disabled = false; $('#updNow').textContent = 'Перезапустить';
         showUpd();
       } else if (ev.type === 'progress') {
         $('#updProgWrap').hidden = false; $('#updProg').style.width = (ev.percent || 0) + '%';
@@ -1459,10 +2275,15 @@
         $('#updText').textContent = 'Устанавливаю и перезапускаю…';
         $('#updNow').disabled = true;
       } else if (ev.type === 'error') {
-        updating = false; $('#updNow').disabled = false; $('#updNow').textContent = 'Повторить';
+        updating = false; userUpdCheck = false;
+        $('#updNow').disabled = false; $('#updNow').textContent = 'Повторить';
         toast('Не удалось обновить: ' + (ev.message || ''), true);
+      } else if (ev.type === 'none') {
+        // Тихую проверку на старте не озвучиваем; ручную — подтверждаем.
+        if (userUpdCheck) toast('У вас последняя версия ✓');
+        userUpdCheck = false;
       }
-      // type 'none' — на старте молчим
+      if (ev.type === 'available' || ev.type === 'ready') userUpdCheck = false;
     });
     $('#updNow').addEventListener('click', () => {
       if (updating) return; updating = true;
@@ -1472,8 +2293,151 @@
     $('#updLater').addEventListener('click', hideUpd);
   }
 
+  /* ============================================================ ДИАГНОСТИКА (спидтест + утечки) ============================================================ */
+  const speedBtn = $('#speedTestBtn'), speedRes = $('#speedRes');
+  // Замер загрузки за фиксированное окно времени: читаем поток до N секунд и
+  // считаем принятые байты, потом обрываем. Так тест ограничен ~10с и не «висит»
+  // 5 минут, если эндпоинт через туннель медленный.
+  async function measureDownload(seconds) {
+    const ctrl = new AbortController();
+    const hardTo = setTimeout(() => ctrl.abort(), seconds * 1000 + 3000);
+    try {
+      const t0 = performance.now();
+      const r = await fetch(`https://speed.cloudflare.com/__down?bytes=300000000&r=${Math.random().toString(36).slice(2)}`, { cache: 'no-store', signal: ctrl.signal });
+      if (!r.body) { const b = await r.arrayBuffer(); const s = (performance.now() - t0) / 1000; clearTimeout(hardTo); return s > 0 ? (b.byteLength * 8 / 1e6) / s : null; }
+      const reader = r.body.getReader();
+      let bytes = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.length;
+        if (performance.now() - t0 > seconds * 1000) { try { ctrl.abort(); } catch {} break; }
+      }
+      const secs = (performance.now() - t0) / 1000;
+      clearTimeout(hardTo);
+      return secs > 0 && bytes > 0 ? (bytes * 8 / 1e6) / secs : null;
+    } catch { clearTimeout(hardTo); return null; }
+  }
+  async function measureUpload() {
+    const ctrl = new AbortController();
+    const hardTo = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const payload = new Uint8Array(8000000), t0 = performance.now();
+      await fetch('https://speed.cloudflare.com/__up', { method: 'POST', body: payload, cache: 'no-store', signal: ctrl.signal });
+      const secs = (performance.now() - t0) / 1000;
+      clearTimeout(hardTo);
+      return secs > 0 ? (payload.byteLength * 8 / 1e6) / secs : null;
+    } catch { clearTimeout(hardTo); return null; }
+  }
+  if (speedBtn) speedBtn.addEventListener('click', async () => {
+    speedBtn.classList.add('is-busy'); speedRes.hidden = false; speedRes.classList.remove('leak');
+    let ping = null, down = null, up = null;
+    try { const s = activeServer(); if (s && s.host) ping = await pingServerHost(s.host, s.port); } catch {}
+    speedRes.textContent = 'Измеряю загрузку…';
+    down = await measureDownload(8);
+    speedRes.textContent = 'Измеряю отдачу…';
+    up = await measureUpload();
+    const parts = [];
+    if (down != null) parts.push(`Загрузка: <b>${down.toFixed(1)} Мбит/с</b>`);
+    if (up != null) parts.push(`Отдача: <b>${up.toFixed(1)} Мбит/с</b>`);
+    if (ping != null) parts.push(`Пинг: <b>${ping} мс</b>`);
+    speedRes.innerHTML = parts.length ? parts.join(' · ') : 'Не удалось измерить (сервис недоступен через туннель?)';
+    if (!connected) speedRes.innerHTML += '<br><small>VPN выключен — это скорость без туннеля</small>';
+    speedBtn.classList.remove('is-busy');
+  });
+
+  const collectBtn = $('#collectLogsBtn');
+  if (collectBtn) collectBtn.addEventListener('click', () => {
+    try { window.API.collectLogs && window.API.collectLogs(); } catch {}
+    toast('Собираю логи — сейчас откроется папка на Рабочем столе');
+  });
+
+  const leakBtn = $('#leakTestBtn'), leakRes = $('#leakRes');
+  const isPublicIp = ip => ip && ip.indexOf(':') < 0
+    && !/^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|198\.1[89]\.|0\.)/.test(ip);
+  function webrtcIps() {
+    return new Promise(resolve => {
+      let pc; const ips = new Set();
+      try { pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }); }
+      catch { resolve([]); return; }
+      let done = false; const finish = () => { if (done) return; done = true; try { pc.close(); } catch {} resolve([...ips]); };
+      try { pc.createDataChannel('x'); } catch {}
+      pc.onicecandidate = e => {
+        if (!e.candidate) return finish();
+        const m = /((?:\d{1,3}\.){3}\d{1,3})/.exec(e.candidate.candidate || '');
+        if (m) ips.add(m[1]);
+      };
+      pc.createOffer().then(o => pc.setLocalDescription(o)).catch(finish);
+      setTimeout(finish, 3500);
+    });
+  }
+  if (leakBtn) leakBtn.addEventListener('click', async () => {
+    leakBtn.classList.add('is-busy'); leakRes.hidden = false; leakRes.classList.remove('leak');
+    leakRes.textContent = 'Проверяю утечки…';
+    let extIp = null, extInfo = '';
+    try {
+      const j = await (await fetch('https://ipwho.is/', { cache: 'no-store' })).json();
+      if (j && j.ip) { extIp = j.ip; extInfo = [j.country, j.connection && j.connection.isp].filter(Boolean).join(' · '); }
+    } catch {}
+    let rtc = []; try { rtc = await webrtcIps(); } catch {}
+    const leaks = rtc.filter(ip => isPublicIp(ip) && ip !== extIp);
+    const lines = [];
+    lines.push(extIp ? `Внешний IP: <b>${extIp}</b>${extInfo ? ' · ' + extInfo : ''}` : 'Внешний IP: не определён');
+    lines.push(connected ? 'Трафик идёт через VPN ✓' : 'VPN выключен — проверка вне туннеля');
+    if (leaks.length) { leakRes.classList.add('leak'); lines.push(`⚠️ WebRTC раскрывает IP: <b>${leaks.join(', ')}</b>`); }
+    else lines.push('WebRTC не раскрывает реальный IP ✓');
+    leakRes.innerHTML = lines.join('<br>');
+    leakBtn.classList.remove('is-busy');
+  });
+
+  /* ============================================================ СОЕДИНЕНИЯ ============================================================ */
+  let connTimer = null, connFilterVal = 'all', lastConns = null;
+  const fmtBytes = n => n >= 1073741824 ? (n / 1073741824).toFixed(2) + ' ГБ'
+    : n >= 1048576 ? (n / 1048576).toFixed(1) + ' МБ'
+    : n >= 1024 ? Math.round(n / 1024) + ' КБ' : (n || 0) + ' Б';
+  function startConnPoll() {
+    stopConnPoll();
+    if (!window.API.getConnections) return;
+    window.API.getConnections();
+    connTimer = setInterval(() => window.API.getConnections(), 1500);
+  }
+  function stopConnPoll() { if (connTimer) { clearInterval(connTimer); connTimer = null; } }
+  function renderConns(data) {
+    const list = $('#connList'), empty = $('#connEmpty'), totals = $('#connTotals');
+    if (!list) return;
+    const conns = (data && data.conns) || [];
+    if (totals) totals.innerHTML = data ? `↓ ${fmtBytes(data.down)} · ↑ ${fmtBytes(data.up)} · соединений: <b>${conns.length}</b>` : '';
+    const filtered = conns.filter(c => connFilterVal === 'all' ? true : connFilterVal === 'vpn' ? !c.direct : c.direct);
+    filtered.sort((a, b) => (b.down + b.up) - (a.down + a.up));   // тяжёлые сверху
+    if (!filtered.length) {
+      list.innerHTML = '';
+      empty.hidden = false;
+      empty.textContent = conns.length ? 'Нет соединений в этой категории.'
+        : (connected ? 'Пока нет активных соединений.' : 'Нет активных соединений. Подключите VPN — здесь появятся запросы приложений.');
+      return;
+    }
+    empty.hidden = true;
+    list.innerHTML = filtered.slice(0, 200).map(c => {
+      const dest = (c.host || c.ip || '—') + (c.port ? ':' + c.port : '');
+      const proc = c.proc ? c.proc.replace(/\.exe$/i, '') : '';
+      const badge = c.direct ? '<span class="conn-b conn-b--direct">напрямую</span>'
+                             : '<span class="conn-b conn-b--vpn">через VPN</span>';
+      const meta = [c.type || c.net, proc].filter(Boolean).join(' · ');
+      return `<li class="conn-row">
+        <div class="conn-row__main"><b title="${esc(dest)}">${esc(dest)}</b><small>${esc(meta)}</small></div>
+        ${badge}
+        <div class="conn-row__io">↓ ${fmtBytes(c.down)}<br>↑ ${fmtBytes(c.up)}</div>
+      </li>`;
+    }).join('');
+  }
+  $$('.seg--connfilter button').forEach(b => b.addEventListener('click', () => {
+    $$('.seg--connfilter button').forEach(x => x.classList.remove('is-active')); b.classList.add('is-active');
+    connFilterVal = b.dataset.cf; renderConns(lastConns);
+  }));
+  if (window.API.onConnData) window.API.onConnData(data => { lastConns = data; renderConns(data); });
+
   /* ============================================================ СТАРТ ============================================================ */
-  applyHoliday(); setTheme('light'); renderServers(); loadImported(); setState('off');
+  applyHoliday(); setTheme(localStorage.getItem('cloudvpn.theme') || 'light'); renderServers(); loadImported(); setState('off');
   const existing = window.API.getSession();
   if (existing) enterApp(existing); else { authView.style.display = 'grid'; showStep('choose'); setTimeout(greetHoliday, 1400); }
 })();

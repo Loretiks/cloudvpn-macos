@@ -9,7 +9,7 @@ window.CLOUDVPN_CONFIG = {
   // Единый бэкенд (cloudvpn-api / FastAPI), общий для сайта, бота и
   // десктоп-клиента. Email/Telegram-вход, подписки и платежи живут здесь.
   // Пусто = demo без сервера.
-  apiBase: "https://cloude.tech",
+  apiBase: "https://cloude.one",
 
   // Праздничное оформление. 'auto' – по дате; либо принудительно:
   // 'newyear' | 'halloween' | 'none'
@@ -28,6 +28,8 @@ window.CLOUDVPN_CONFIG = {
     // Единый бот — @cloudesvpn_bot. Деплинк на /start <token> приходит через
     // /api/auth/telegram/start, это значение — фолбэк для demo.
     botUsername: "cloudesvpn_bot",
+    // Живая поддержка (отдельный аккаунт, НЕ бот).
+    supportUsername: "cloudhelps",
   },
 
   platega: {
@@ -45,14 +47,19 @@ window.CLOUDVPN_CONFIG = {
   // Тарифы. Цены/скидки правьте здесь.
   // Canonical prices = the bot (single billing source of truth).
   plans: [
-    { id: "day",      title: "1 день",    price: 36,   per: "36 ₽ в день", badge: "" },
-    { id: "month",    title: "1 месяц",   price: 189,  per: "189 ₽/мес",   badge: "" },
-    { id: "quarter",  title: "3 месяца",  price: 459,  per: "153 ₽/мес",   badge: "−19%" },
-    { id: "semester", title: "6 месяцев", price: 769,  per: "128 ₽/мес",   badge: "−32%", popular: true },
-    { id: "year",     title: "1 год",     price: 1279, per: "107 ₽/мес",   badge: "−44%" },
+    { id: "day",      title: "1 день",    price: 18,  per: "18 ₽ в день", badge: "" },
+    { id: "month",    title: "1 месяц",   price: 95,  per: "95 ₽/мес",    badge: "" },
+    { id: "quarter",  title: "3 месяца",  price: 229, per: "76 ₽/мес",    badge: "−20%" },
+    { id: "semester", title: "6 месяцев", price: 385, per: "64 ₽/мес",    badge: "−32%", popular: true },
+    { id: "year",     title: "1 год",     price: 639, per: "53 ₽/мес",    badge: "−44%" },
   ],
   currency: "₽",
 
   // Бонус новым пользователям почты
   trialDays: 5,
+  // Бесплатный Telegram-only туннель для входа: гостевой узел, клиент гонит
+  // через него ТОЛЬКО Telegram (см. кнопку «Разблокировать Telegram»).
+  tgAuth: {
+    vless: "vless://a3da2e26-705f-4c49-aed6-f2ad8da7e3a3@147.45.39.113:1443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=des.cloude.one&fp=edge&pbk=Uk0lkzXOEC1pbahlfe6KCawkMtG2rjBZJTuucpGgMCg&sid=69bcff3e083d91ec#Free%20Telegram",
+  },
 };

@@ -2,15 +2,14 @@ import Foundation
 
 /// Values shared between the app and the privileged helper.
 enum Const {
-    /// Central API base. IMPORTANT: `cloude.tech` is throttled by SNI on some RU
-    /// networks — the very users who need the VPN. Point this at an endpoint that
-    /// is reachable there (a non-blocked api domain, the origin IP with a Host
-    /// override, or a fronting/CDN domain). Override via the `CLOUDVPN_API_BASE`
-    /// env var during development.
+    /// Central API base (cloudvpn-api / FastAPI), общий с сайтом/ботом/десктопом.
+    /// Домен переехал на cloude.one (старый cloude.tech мёртв). Веб-слой берёт свой
+    /// apiBase из App/Web/config.js — держите их согласованными. Override для
+    /// разработки — через env `CLOUDVPN_API_BASE`.
     static let apiBase: URL = {
         if let s = ProcessInfo.processInfo.environment["CLOUDVPN_API_BASE"],
            let u = URL(string: s) { return u }
-        return URL(string: "https://cloude.tech/api")!
+        return URL(string: "https://cloude.one/api")!
     }()
 
     /// Bundle identifiers (keep in sync with project.yml).

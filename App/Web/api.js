@@ -102,6 +102,16 @@ window.API = (() => {
   function onUpdate(fn) { updateListeners.push(fn); }
   function updateCheck() { if (host) host.postMessage("update:check"); }
   function updateInstall() { if (host) host.postMessage("update:install"); }
+  function setKillSwitch(on) { if (host) host.postMessage(on ? "ks:on" : "ks:off"); }
+  function setCloseTray(on) { if (host) host.postMessage(on ? "close-to-tray:on" : "close-to-tray:off"); }
+  function setKeepAlive(on) { if (host) host.postMessage(on ? "keep-alive:on" : "keep-alive:off"); }
+  function collectLogs() { if (host) host.postMessage("diag:collect"); }
+  function traySync(obj) { try { if (host) host.postMessage("tray:sync:" + JSON.stringify(obj)); } catch {} }
+  const trayListeners = [];
+  function onTray(fn) { trayListeners.push(fn); }
+  function getConnections() { if (host) host.postMessage("conn:get"); }
+  const connListeners = [];
+  function onConnData(fn) { connListeners.push(fn); }
   function emitUpdate(ev) { updateListeners.forEach(fn => { try { fn(ev); } catch {} }); }
 
   // Нативный ICMP-пинг (только в десктоп-приложении). Возвращает мс или null.
@@ -133,11 +143,14 @@ window.API = (() => {
       const w = pongWaiters.get(id);
       if (w) { pongWaiters.delete(id); w(Number.isFinite(ms) && ms >= 0 ? ms : null); }
     } else if (d.startsWith("update:")) {
-      // update:available:<json> | update:progress:<n> | update:installing | update:none | update:error:<msg>
+      // update:available:<json> | update:ready:<json> | update:progress:<n> | update:installing | update:none | update:error:<msg>
       const rest = d.slice(7);
       if (rest.startsWith("available:")) {
         let info = null; try { info = JSON.parse(rest.slice(10)); } catch {}
         emitUpdate({ type: "available", info });
+      } else if (rest.startsWith("ready:")) {
+        let info = null; try { info = JSON.parse(rest.slice(6)); } catch {}
+        emitUpdate({ type: "ready", info });
       } else if (rest.startsWith("progress:")) {
         emitUpdate({ type: "progress", percent: parseInt(rest.slice(9), 10) || 0 });
       } else if (rest === "installing") {
@@ -147,6 +160,13 @@ window.API = (() => {
       } else if (rest.startsWith("error:")) {
         emitUpdate({ type: "error", message: rest.slice(6) });
       }
+    } else if (d.startsWith("tray:")) {
+      // команды из трея: connect | disconnect | server:<id>
+      const cmd = d.slice(5);
+      trayListeners.forEach(fn => { try { fn(cmd); } catch {} });
+    } else if (d.startsWith("conn:data:")) {
+      let obj = null; try { obj = JSON.parse(d.slice(10)); } catch {}
+      if (obj) connListeners.forEach(fn => { try { fn(obj); } catch {} });
     }
   });
   function requestLogTail() { if (host) host.postMessage("log:tail"); }
@@ -277,6 +297,22 @@ window.API = (() => {
     return s;
   }
 
+  // «Игровые серверы» (AmneziaWG). Тянем с бэкенда (только активной подписке),
+  // СЫРОЙ конфиг сразу отдаём в натив (там и живёт), наверх — только id+имя.
+  // Так ключи не вытащить через DevTools/localStorage.
+  async function loadGaming() {
+    if (!LIVE) return [];
+    try {
+      const r = await http("/api/vpn/gaming", null, "GET");
+      const servers = (r && Array.isArray(r.servers)) ? r.servers : [];
+      if (host && servers.length) host.postMessage("gaming:load:" + JSON.stringify(servers));
+      // Наверх — только id+имя + адрес узла для пинга (сам конфиг/ключи остаются
+      // в нативе). IP не секрет: это эндпоинт, он и так виден при подключении.
+      return servers.map(s => ({ id: s.id, name: s.name, country: s.country, city: s.city, code: s.code,
+                                 host: (s.awg && s.awg.server) || '', port: (s.awg && s.awg.port) || 443 }));
+    } catch { return []; }
+  }
+
   async function emailLogin(email, password) {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("bad-email");
     if (!password) throw new Error("bad-password");
@@ -382,6 +418,13 @@ window.API = (() => {
   }
   function openPayment(payment) { openExternal(payment.url || payment.paymentUrl); }
 
+  // Оплатить подписку с баланса кошелька. Списание атомарное на бэкенде.
+  async function payFromBalance(planId) {
+    if (LIVE) return http("/api/payments/balance", { plan_id: planId }, "POST");
+    await sleep(500);
+    return { ok: true };
+  }
+
   async function pollPayment(paymentId) {
     if (LIVE) return http("/api/payments/" + paymentId, null, "GET");
     await sleep(900);
@@ -404,16 +447,16 @@ window.API = (() => {
 
   return {
     LIVE,
-    getSession, clearSession, logout, refreshSession,
+    getSession, clearSession, logout, refreshSession, loadGaming,
     tgStart, tgOpen, tgPoll, tgConfirmDemo,
     emailLogin, emailRequestCode, emailLoginWithCode,
     getSubscription, getVpnConfig, getDevices, removeDevice, resetKey, getServerTime, getLatestNews, claimGift,
-    createPayment, openPayment, pollPayment, applyPurchase,
+    createPayment, payFromBalance, openPayment, pollPayment, applyPurchase,
     openExternal,
     hasNativeVpn, onVpn, onSub, vpnConnect, vpnDisconnect, importSubscription,
     openLog, requestLogTail, onLogTail,
     requestAppsList, onAppsList,
-    onUpdate, updateCheck, updateInstall,
+    onUpdate, updateCheck, updateInstall, setKillSwitch, setCloseTray, setKeepAlive, collectLogs, traySync, onTray, getConnections, onConnData,
     nativePing,
   };
 })();

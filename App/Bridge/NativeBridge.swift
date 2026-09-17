@@ -28,10 +28,19 @@ final class NativeBridge: NSObject {
         set { UserDefaults.standard.set(newValue, forKey: Self.killSwitchKey) }
     }
 
+    /// Закрывать в трей (крестик сворачивает, туннель живёт) или выходить. По
+    /// умолчанию — в трей, как на Windows.
+    var closeToTray: Bool {
+        get { UserDefaults.standard.object(forKey: "cloudvpn.closeToTray") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "cloudvpn.closeToTray") }
+    }
+
     init(window: NSWindow, webView: WKWebView) {
         self.window = window
         self.webView = webView
         super.init()
+        // Сырой канал наверх для не-vpn сообщений (conn:data и т.п.).
+        vpn.emitRaw = { [weak self] msg in self?.send(msg) }
     }
 
     /// Транслируем vpn-события в UI и параллельно обновляем меню-бар.
@@ -42,7 +51,7 @@ final class NativeBridge: NSObject {
            let state = obj["state"] as? String {
             switch state {
             case "connected":    onVPNState?(true)
-            case "disconnected", "error": onVPNState?(false)
+            case "disconnected", "error", "dropped": onVPNState?(false)
             default: break
             }
         }
@@ -88,8 +97,17 @@ final class NativeBridge: NSObject {
         case msg.hasPrefix("vpn:connect:"): vpn.connect(json: String(msg.dropFirst(12)), killSwitch: killSwitchEnabled)
         case msg == "vpn:disconnect":      vpn.disconnect()
         case msg.hasPrefix("vpn:sub:"):    importSubscription(String(msg.dropFirst(8)))
-        case msg == "killswitch:on":       setKillSwitch(true)
-        case msg == "killswitch:off":      setKillSwitch(false)
+        // Kill switch: web-слой шлёт ks:on/off (старое killswitch:* тоже принимаем).
+        case msg == "ks:on", msg == "killswitch:on":   setKillSwitch(true)
+        case msg == "ks:off", msg == "killswitch:off": setKillSwitch(false)
+        case msg == "keep-alive:on":       vpn.setKeepAlive(true)
+        case msg == "keep-alive:off":      vpn.setKeepAlive(false)
+        case msg == "close-to-tray:on":    closeToTray = true
+        case msg == "close-to-tray:off":   closeToTray = false
+        case msg == "conn:get":            vpn.getConnections()
+        case msg.hasPrefix("gaming:load:"): vpn.loadGaming(json: String(msg.dropFirst(12)))
+        case msg.hasPrefix("tray:sync:"):  break   // меню-бар ведёт AppDelegate по vpn-состоянию
+        case msg == "diag:collect":        collectDiagnostics()
         case msg.hasPrefix("debug:"):      NSLog("webui %@", String(msg.dropFirst(6)))
         default: NSLog("bridge: unhandled message %@", String(msg.prefix(80)))
         }
@@ -102,7 +120,10 @@ final class NativeBridge: NSObject {
         switch cmd {
         case "min":   window.miniaturize(nil)
         case "max":   window.zoom(nil)
-        case "close": window.orderOut(nil)   // сворачиваем в трей, туннель живёт в хелпере
+        case "close":
+            // По умолчанию — в трей (туннель живёт в хелпере). Если пользователь
+            // выключил «сворачивать в трей» — выходим.
+            if closeToTray { window.orderOut(nil) } else { NSApp.terminate(nil) }
         case "drag":  if let e = NSApp.currentEvent { window.performDrag(with: e) }
         default: break
         }
@@ -189,6 +210,78 @@ final class NativeBridge: NSObject {
     static func tail(of url: URL, lines: Int) -> String {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return "" }
         return text.split(separator: "\n").suffix(lines).joined(separator: "\n")
+    }
+
+    // MARK: diagnostics («Собрать логи для поддержки»)
+
+    /// Складывает лог ядра, конфиг БЕЗ ключей и системно-сетевую справку в папку на
+    /// Рабочем столе и открывает её. Зеркало Windows VpnManager.CollectDiagnostics.
+    private func collectDiagnostics() {
+        Task.detached { [weak self] in
+            let fm = FileManager.default
+            let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+            let ts = df.string(from: Date())
+            let desktop = fm.urls(for: .desktopDirectory, in: .userDomainMask).first
+                ?? fm.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+            let dir = desktop.appendingPathComponent("CloudVPN-Диагностика-\(ts)")
+            guard (try? fm.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else {
+                await self?.notify("Не удалось создать папку диагностики"); return
+            }
+            func write(_ name: String, _ text: String) {
+                try? text.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            }
+            let work = URL(fileURLWithPath: Const.workDir)
+            if let log = try? String(contentsOf: work.appendingPathComponent("mihomo.log"), encoding: .utf8) {
+                write("mihomo.log", log)
+            }
+            if let cfg = try? String(contentsOf: work.appendingPathComponent("config.yaml"), encoding: .utf8) {
+                write("config-redacted.yaml", Self.redact(cfg))
+            }
+            let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+            var sys = "CloudVPN macOS diagnostics\ncollected: \(Date())\napp version: \(version)\n\n"
+            sys += "== sw_vers ==\n" + Self.shell("/usr/bin/sw_vers", []) + "\n"
+            sys += "== uname ==\n" + Self.shell("/usr/bin/uname", ["-a"]) + "\n"
+            let helperStatus = await HelperClient.shared.status()
+            sys += "== helper ==\nstatus: \(helperStatus)\ncontroller: \(Const.mihomoController)\n"
+            write("system.txt", sys)
+            var net = "== route (netstat -rn) ==\n" + Self.shell("/usr/sbin/netstat", ["-rn"]) + "\n\n"
+            net += "== ifconfig ==\n" + Self.shell("/sbin/ifconfig", []) + "\n\n"
+            net += "== DNS (scutil --dns) ==\n" + Self.shell("/usr/sbin/scutil", ["--dns"]) + "\n\n"
+            net += "== hardware ports ==\n" + Self.shell("/usr/sbin/networksetup", ["-listallhardwareports"]) + "\n"
+            write("network.txt", net)
+
+            await MainActor.run {
+                NSWorkspace.shared.activateFileViewerSelecting([dir])
+                self?.notify("Логи собраны на Рабочий стол")
+            }
+        }
+    }
+
+    /// Вырезаем секреты (ключи/uuid/пароли + любые config-ссылки) перед отправкой.
+    private static func redact(_ text: String) -> String {
+        let keys = ["private-key", "public-key", "pre-shared-key", "uuid", "password", "secret"]
+        let lines = text.components(separatedBy: "\n").map { line -> String in
+            for k in keys {
+                if let r = line.range(of: k + ":", options: .caseInsensitive) {
+                    return String(line[..<r.upperBound]) + " ***"
+                }
+            }
+            return line
+        }
+        return lines.joined(separator: "\n")
+            .replacingOccurrences(of: "(vless|hysteria2|hy2|amneziawg)://[^\\s\"']+",
+                                  with: "$1://***", options: .regularExpression)
+    }
+
+    /// Read-only системная команда → текст (для справки в диагностике).
+    private static func shell(_ path: String, _ args: [String]) -> String {
+        guard FileManager.default.isExecutableFile(atPath: path) else { return "(n/a)" }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: path); p.arguments = args
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        do { try p.run() } catch { return "(failed: \(error.localizedDescription))" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     // Обновления полностью на Sparkle: `update:check`/`update:install` из web-UI и

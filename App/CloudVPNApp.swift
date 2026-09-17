@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isReleasedWhenClosed = false
 
         let config = WKWebViewConfiguration()
-        // The UI is loaded from file:// and calls https://cloude.tech directly —
+        // The UI is loaded from file:// and calls https://cloude.one directly —
         // relax the file-origin CORS rules exactly like WebView2 does for the
         // Windows client. Private keys, guarded so a WebKit rename can't crash us.
         config.preferences.trySetValue(true, forKey: "allowFileAccessFromFileURLs")

@@ -29,7 +29,7 @@ HTML/CSS/JS (`App/Web`, дословно из cloudvpn-desktop) рендерит
 └───────────────────────────────────┘                Core/mihomo ──▶ VLESS/Reality nodes
         │ HTTPS (из JS, Bearer)
         ▼
-  cloude.tech/api  (auth: Telegram deep-link / e-mail; /me, подписка, платежи, устройства)
+  cloude.one/api  (auth: Telegram deep-link / e-mail; /me, подписка, платежи, устройства)
 ```
 
 - **UI** (`App/Web`) — дословно интерфейс Windows-клиента; сам ходит в API по Bearer-токену
@@ -98,13 +98,13 @@ Apple → “Updating helper executables from earlier versions of macOS”.
 ## Подключение к API
 
 Весь API-слой живёт в **JS** (`App/Web/api.js`, общий с Windows) и ходит на
-`https://cloude.tech` по **Bearer-токену** (JWT в localStorage): Telegram deep-link
+`https://cloude.one` по **Bearer-токену** (JWT в localStorage): Telegram deep-link
 (`/api/auth/telegram/start` → бот → `poll`), e-mail+пароль, e-mail-код, `/api/auth/me`,
 подписка, устройства (HWID), платежи Платеги, новости, подарки. Страница загружается
 с `file://`, поэтому в WKWebView включён `allowUniversalAccessFromFileURLs` — CORS к
 API не мешает (проверено на живом `/api/sale`).
 
-⚠️ **SNI-блок:** `cloude.tech` на части RU-сетей режется по SNI — а это ровно те юзеры,
+⚠️ **SNI-блок:** `cloude.one` на части RU-сетей режется по SNI — а это ровно те юзеры,
 кому нужен VPN. Для запросов к API нужен доступный там эндпоинт (незаблокированный
 api-домен / origin-IP + Host / fronting-домен). База задаётся в `App/Web/config.js`
 (`apiBase`). Реши это до релиза.

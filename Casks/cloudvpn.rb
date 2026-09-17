@@ -15,7 +15,7 @@ cask "cloudvpn" do
       verified: "github.com/Loretiks/cloudvpn-macos/"
   name "Cloud VPN"
   desc "Быстрый и приватный VPN (VLESS + Reality, ядро mihomo)"
-  homepage "https://cloude.tech/"
+  homepage "https://cloude.one/"
 
   # Приложение обновляется само через Sparkle — brew не перетирает и не мешает.
   auto_updates true

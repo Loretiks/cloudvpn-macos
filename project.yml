@@ -30,8 +30,8 @@ packages:
 
 settings:
   base:
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.1.17"
+    CURRENT_PROJECT_VERSION: "2"
     SWIFT_VERSION: "5.9"
     # Local dev team (Xcode → Signing). A FREE account works for local runs.
     DEVELOPMENT_TEAM: "STWWNS7WRF"
