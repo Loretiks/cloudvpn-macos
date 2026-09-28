@@ -50,9 +50,8 @@ mkdir -p "$UPDATES"
 DMG="$UPDATES/CloudVPN-$VERSION.dmg"
 rm -f "$DMG"
 echo "→ упаковка DMG…"
-STAGE="$(mktemp -d)"; cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "Cloud VPN" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
-rm -rf "$STAGE"
+# Оформленный установщик (фон, стрелка, раскладка) — см. scripts/make-dmg.sh.
+"$ROOT/scripts/make-dmg.sh" "$APP" "$DMG" >/dev/null
 
 # 5. Сгенерировать appcast (EdDSA-подпись + дельты). URL-префикс — путь ассетов ЭТОГО
 #    релиза; latest-item и его дельта укажут на ассеты этого тега (что и нужно апдейту).
