@@ -52,6 +52,9 @@ rm -f "$DMG"
 echo "→ упаковка DMG…"
 # Оформленный установщик (фон, стрелка, раскладка) — см. scripts/make-dmg.sh.
 "$ROOT/scripts/make-dmg.sh" "$APP" "$DMG" >/dev/null
+# Постоянное имя для сайта cloude.one: кнопка macOS ведёт на
+# releases/latest/download/CloudVPN.dmg — без этого файла в релизе она даёт 404.
+STABLE="$DIST/CloudVPN.dmg"; cp "$DMG" "$STABLE"
 
 # 5. Сгенерировать appcast (EdDSA-подпись + дельты). URL-префикс — путь ассетов ЭТОГО
 #    релиза; latest-item и его дельта укажут на ассеты этого тега (что и нужно апдейту).
@@ -72,14 +75,14 @@ fi
 #    appcast.xml обязателен как ассет — на него смотрит SUFeedURL (latest/download).
 echo "→ публикация релиза ${TAG} в ${REPO} …"
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-  gh release upload "$TAG" "$UPDATES/appcast.xml" "$DMG" $UPDATES/*.delta --clobber -R "$REPO" 2>/dev/null || \
-  gh release upload "$TAG" "$UPDATES/appcast.xml" "$DMG" --clobber -R "$REPO"
+  gh release upload "$TAG" "$UPDATES/appcast.xml" "$DMG" "$STABLE" $UPDATES/*.delta --clobber -R "$REPO" 2>/dev/null || \
+  gh release upload "$TAG" "$UPDATES/appcast.xml" "$DMG" "$STABLE" --clobber -R "$REPO"
 else
   gh release create "$TAG" -R "$REPO" --latest --title "Cloud VPN $VERSION" \
     --notes "Автообновление через Sparkle. Первый запуск — правый клик → «Открыть» (или brew --cask)." \
-    "$UPDATES/appcast.xml" "$DMG" $UPDATES/*.delta 2>/dev/null || \
+    "$UPDATES/appcast.xml" "$DMG" "$STABLE" $UPDATES/*.delta 2>/dev/null || \
   gh release create "$TAG" -R "$REPO" --latest --title "Cloud VPN $VERSION" \
-    --notes "Автообновление через Sparkle." "$UPDATES/appcast.xml" "$DMG"
+    --notes "Автообновление через Sparkle." "$UPDATES/appcast.xml" "$DMG" "$STABLE"
 fi
 
 echo
