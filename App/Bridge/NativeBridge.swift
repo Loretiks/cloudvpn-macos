@@ -258,7 +258,7 @@ final class NativeBridge: NSObject {
     }
 
     /// Вырезаем секреты (ключи/uuid/пароли + любые config-ссылки) перед отправкой.
-    private static func redact(_ text: String) -> String {
+    nonisolated private static func redact(_ text: String) -> String {
         let keys = ["private-key", "public-key", "pre-shared-key", "uuid", "password", "secret"]
         let lines = text.components(separatedBy: "\n").map { line -> String in
             for k in keys {
@@ -274,7 +274,7 @@ final class NativeBridge: NSObject {
     }
 
     /// Read-only системная команда → текст (для справки в диагностике).
-    private static func shell(_ path: String, _ args: [String]) -> String {
+    nonisolated private static func shell(_ path: String, _ args: [String]) -> String {
         guard FileManager.default.isExecutableFile(atPath: path) else { return "(n/a)" }
         let p = Process(); p.executableURL = URL(fileURLWithPath: path); p.arguments = args
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
