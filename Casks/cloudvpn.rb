@@ -8,8 +8,8 @@
 # scripts/release.sh обновляет version + sha256 здесь; после релиза скопируй/запушь его
 # в tap-репо (или настрой пуш в release.sh).
 cask "cloudvpn" do
-  version "0.1.0"
-  sha256 "c6fa5ad17fb82c30d2039fc6a67a5762178e8a34bc4c146dac6497a71ea6e66d"
+  version "1.1.17"
+  sha256 "47c1024ea18bdde057756f4a97565f9a946b3de1ced084840ba9988cef61d185"
 
   url "https://github.com/Loretiks/cloudvpn-macos/releases/download/v#{version}/CloudVPN-#{version}.dmg",
       verified: "github.com/Loretiks/cloudvpn-macos/"

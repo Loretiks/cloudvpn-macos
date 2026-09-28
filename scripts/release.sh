@@ -30,7 +30,7 @@ SPARKLE_BIN="${SPARKLE_BIN:-$(find "$HOME/Library/Developer/Xcode/DerivedData" \
 echo "→ сборка Release…"
 DERIVED="$DIST/DerivedData"
 xcodebuild -project CloudVPN.xcodeproj -scheme CloudVPN -configuration Release \
-  -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
+  -destination 'generic/platform=macOS' -derivedDataPath "$DERIVED" \
   -allowProvisioningUpdates build >/dev/null
 APP="$DERIVED/Build/Products/Release/CloudVPN.app"
 [ -d "$APP" ] || { echo "✗ .app не собрался" >&2; exit 1; }
